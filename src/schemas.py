@@ -466,6 +466,22 @@ class ComplianceReport(BaseModel):
     controls: Dict[str, Any]
 
 
+class DriftAlert(BaseModel):
+    id: str
+    org_id: str
+    evaluation_id: str
+    old_decision: str
+    new_decision: str
+    created_at: str
+
+
+class PolicyBundle(BaseModel):
+    org_id: str
+    exported_at: str
+    signature: str
+    policies: List[Policy]
+
+
 class ScimUser(BaseModel):
     id: str
     userName: str

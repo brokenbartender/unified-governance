@@ -93,6 +93,8 @@ from .schemas import (
     PolicyApproval,
     PolicyApprovalCreate,
     ComplianceReport,
+    DriftAlert,
+    PolicyBundle,
 )
 from .settings import settings
 
@@ -391,6 +393,18 @@ def create_backup(
     with open(source, "rb") as src, open(target, "wb") as dst:
         dst.write(src.read())
     return {"status": "ok", "path": target}
+
+
+@app.post("/backups/verify")
+def verify_backup(
+    path: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> dict:
+    _ = key_row
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    size = os.path.getsize(path)
+    return {"status": "ok", "path": path, "size_bytes": size}
 
 
 @app.get("/metrics")
@@ -1353,6 +1367,26 @@ def revoke_api_key(
     )
 
 
+@app.post("/orgs/{org_id}/keys/rotate-all", response_model=dict)
+def rotate_all_keys(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> dict:
+    if org_id != key_row["org_id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM api_keys WHERE org_id = ? AND revoked_at IS NULL",
+            (org_id,),
+        ).fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE api_keys SET key_hash = ? WHERE id = ?",
+                (_hash_key(secrets.token_urlsafe(32)), row["id"]),
+            )
+    return {"rotated": len(rows)}
+
+
 @app.get("/orgs/{org_id}/keys", response_model=list[ApiKey])
 def list_api_keys(org_id: str, key_row: dict = Depends(_require_org_and_scopes(["orgs:read"]))) -> list[ApiKey]:
     if org_id != key_row["org_id"]:
@@ -1906,6 +1940,22 @@ def list_policy_approvals(
     return [PolicyApproval(**row_to_dict(row)) for row in rows]
 
 
+@app.get("/policies/{policy_id}/approvals/quorum")
+def approvals_quorum(
+    policy_id: str,
+    required: int = 2,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        count_row = conn.execute(
+            "SELECT COUNT(*) as total FROM policy_approvals WHERE policy_id = ? AND org_id = ?",
+            (policy_id, org_id),
+        ).fetchone()
+    total = count_row["total"] if isinstance(count_row, dict) else count_row[0]
+    return {"policy_id": policy_id, "approvals": total, "required": required, "quorum_met": total >= required}
+
+
 @app.post("/policies/{policy_id}/rollback", response_model=Policy)
 def rollback_policy(
     policy_id: str,
@@ -2009,6 +2059,49 @@ def simulate_policy(
     )
 
 
+@app.post("/policies/{policy_id}/simulate/batch")
+def simulate_policy_batch(
+    policy_id: str,
+    payload: dict,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read", "resources:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    resource_ids = payload.get("resource_ids") or []
+    principal = payload.get("principal")
+    action = payload.get("action")
+    if not principal or not action:
+        raise HTTPException(status_code=400, detail="principal and action required")
+    with get_conn() as conn:
+        policy_row = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (policy_id, org_id),
+        ).fetchone()
+        resources = conn.execute(
+            f"SELECT * FROM resources WHERE org_id = ? AND id IN ({','.join(['?']*len(resource_ids))})",
+            (org_id, *resource_ids),
+        ).fetchall() if resource_ids else []
+    if not policy_row:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    rule = PolicyRule(**parse_json_field(row_to_dict(policy_row)["rule_json"]))
+    results = []
+    for row in resources:
+        data = row_to_dict(row)
+        resource = Resource(
+            id=data["id"],
+            org_id=data["org_id"],
+            name=data["name"],
+            type=data["type"],
+            attributes=parse_json_field(data["attributes_json"]),
+            source_system=data.get("source_system") or "manual",
+            external_id=data.get("external_id"),
+            ai_metadata=parse_json_field(data.get("ai_metadata_json", "")) or None,
+            created_at=data["created_at"],
+        )
+        decision, rationale, _ = evaluate_policy(rule, principal, action, resource)
+        results.append({"resource_id": data["id"], "decision": decision, "rationale": rationale})
+    return {"policy_id": policy_id, "results": results}
+
+
 @app.get("/policies/{policy_id}/rego", response_model=OpaPolicyExport)
 def export_policy_rego(
     policy_id: str,
@@ -2042,6 +2135,57 @@ def export_policy_rego(
         opa_input=opa_input,
         rego=rego,
     )
+
+
+@app.get("/policies/bundle", response_model=PolicyBundle)
+def export_policy_bundle(
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read"])),
+) -> PolicyBundle:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM policies WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    policies = [_policy_model_from_row(row_to_dict(row)) for row in rows]
+    exported_at = now_iso()
+    payload = {"org_id": org_id, "exported_at": exported_at, "policies": [p.model_dump() for p in policies]}
+    signature = hmac.new(
+        settings.policy_approval_secret.encode("utf-8"),
+        json.dumps(payload, sort_keys=True).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return PolicyBundle(org_id=org_id, exported_at=exported_at, signature=signature, policies=policies)
+
+
+@app.post("/policies/bundle/import", response_model=dict)
+def import_policy_bundle(
+    payload: dict,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    signature = payload.get("signature")
+    expected = hmac.new(
+        settings.policy_approval_secret.encode("utf-8"),
+        json.dumps({k: v for k, v in payload.items() if k != "signature"}, sort_keys=True).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if signature != expected:
+        raise HTTPException(status_code=400, detail="Invalid bundle signature")
+    policies = payload.get("policies") or []
+    imported = 0
+    for policy in policies:
+        create_policy(
+            PolicyCreate(
+                name=policy.get("name"),
+                description=policy.get("description"),
+                rule=PolicyRule(**policy.get("rule", {})),
+                inherits_from=policy.get("inherits_from"),
+            ),
+            key_row,
+        )
+        imported += 1
+    return {"imported": imported, "org_id": org_id}
 
 
 @app.post("/policies/import/rego", response_model=Policy)
@@ -2479,6 +2623,13 @@ def replay_evaluation(
     )
     stored_decision = eval_row["decision"]
     drift = stored_decision != new_decision
+    if drift:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO drift_alerts (id, org_id, evaluation_id, old_decision, new_decision, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), org_id, evaluation_id, stored_decision, new_decision, now_iso()),
+            )
     return {
         "evaluation_id": evaluation_id,
         "stored_decision": stored_decision,
@@ -2488,6 +2639,19 @@ def replay_evaluation(
         "drift": drift,
         "explain": new_explain,
     }
+
+
+@app.get("/drift/alerts", response_model=list[DriftAlert])
+def list_drift_alerts(
+    key_row: dict = Depends(_require_org_and_scopes(["evaluations:read"])),
+) -> list[DriftAlert]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM drift_alerts WHERE org_id = ? ORDER BY created_at DESC LIMIT 200",
+            (org_id,),
+        ).fetchall()
+    return [DriftAlert(**row_to_dict(row)) for row in rows]
 
 
 @app.post("/playground/evaluate", response_model=list[PlaygroundDecision])
@@ -3010,6 +3174,25 @@ def coverage_report(
     return {"policies": policies, "resources": resources, "coverage_percent": coverage}
 
 
+@app.get("/risk/anomalies")
+def risk_anomalies(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> list[dict]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT payload_json FROM decision_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT 500",
+            (org_id,),
+        ).fetchall()
+    counts: dict[str, int] = {}
+    for row in rows:
+        payload = parse_json_field(row["payload_json"])
+        principal = payload.get("principal") or "unknown"
+        counts[principal] = counts.get(principal, 0) + 1
+    anomalies = [{"principal": p, "count": c} for p, c in counts.items() if c > 50]
+    return anomalies
+
+
 @app.post("/webhooks", response_model=Webhook)
 def create_webhook(
     payload: WebhookCreate,
@@ -3081,6 +3264,24 @@ def rotate_webhook_secret(
         enabled=bool(data["enabled"]),
         created_at=data["created_at"],
     )
+
+
+@app.post("/webhooks/rotate-all", response_model=dict)
+def rotate_all_webhook_secrets(
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM webhooks WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE webhooks SET secret = ? WHERE id = ?",
+                (secrets.token_urlsafe(24), row["id"]),
+            )
+    return {"rotated": len(rows)}
 
 
 @app.post("/webhooks/{webhook_id}/test", response_model=WebhookDelivery)
@@ -3244,7 +3445,54 @@ def export_siem(
                 f"outcome={decision}"
             )
         return Response(content="\n".join(lines), media_type="text/plain")
+    if format == "hec":
+        hec_payload = [{"event": entry} for entry in payloads]
+        return hec_payload
     return payloads
+
+
+@app.get("/access/query")
+def access_query(
+    principal: str,
+    action: str,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        policies = conn.execute(
+            "SELECT * FROM policies WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+    allowed = []
+    denied = []
+    for row in policies:
+        data = row_to_dict(row)
+        rule = PolicyRule(**parse_json_field(data["rule_json"]))
+        if principal in rule.allowed_principals or "*" in rule.allowed_principals:
+            if action in rule.allowed_actions or "*" in rule.allowed_actions:
+                allowed.append(data["id"])
+            else:
+                denied.append(data["id"])
+    return {"principal": principal, "action": action, "allowed_policies": allowed, "denied_policies": denied}
+
+
+@app.post("/policies/lint")
+def lint_policy(
+    payload: PolicyCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> dict:
+    _ = key_row
+    rule = payload.rule
+    issues = []
+    if "*" in rule.allowed_principals:
+        issues.append("Wildcard principals")
+    if "*" in rule.allowed_actions:
+        issues.append("Wildcard actions")
+    if "*" in rule.resource_types:
+        issues.append("Wildcard resource types")
+    if not rule.required_attributes:
+        issues.append("No required attributes set")
+    return {"issues": issues, "severity": "high" if len(issues) >= 2 else "medium" if issues else "low"}
 
 
 @app.get("/audit/export")
@@ -3420,6 +3668,54 @@ def evidence_pack(
     }
     payload = build_audit_pack(bundle)
     return Response(content=payload, media_type="application/zip")
+
+
+@app.get("/evidence/timeline")
+def evidence_timeline(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> list[dict]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, created_at, record_hash, prev_hash FROM evaluations WHERE org_id = ? ORDER BY created_at ASC",
+            (org_id,),
+        ).fetchall()
+    return [row_to_dict(row) for row in rows]
+
+
+@app.get("/lineage/resource/{resource_id}")
+def resource_lineage(
+    resource_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["resources:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        resource = conn.execute(
+            "SELECT * FROM resources WHERE id = ? AND org_id = ?",
+            (resource_id, org_id),
+        ).fetchone()
+        evals = conn.execute(
+            "SELECT * FROM evaluations WHERE resource_id = ? AND org_id = ? ORDER BY created_at DESC LIMIT 50",
+            (resource_id, org_id),
+        ).fetchall()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    return {
+        "resource": row_to_dict(resource),
+        "evaluations": [row_to_dict(row) for row in evals],
+    }
+
+
+@app.get("/onboarding/checklist")
+def onboarding_checklist() -> list[dict]:
+    return [
+        {"step": "Create org", "endpoint": "POST /orgs"},
+        {"step": "Create API key", "endpoint": "POST /orgs/{org_id}/keys"},
+        {"step": "Create policy", "endpoint": "POST /policies"},
+        {"step": "Register resource", "endpoint": "POST /resources"},
+        {"step": "Evaluate access", "endpoint": "POST /evaluations"},
+        {"step": "Export evidence", "endpoint": "GET /evidence/export"},
+    ]
 
 
 @app.get("/orgs/{org_id}/export", response_model=OrgExport)

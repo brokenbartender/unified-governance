@@ -90,6 +90,19 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /reports/compliance`
 - `GET /evidence/pack`
 - `GET /coverage`
+- `GET /drift/alerts`
+- `GET /policies/bundle`
+- `POST /policies/bundle/import`
+- `GET /access/query`
+- `POST /policies/lint`
+- `POST /policies/{policy_id}/simulate/batch`
+- `GET /risk/anomalies`
+- `GET /evidence/timeline`
+- `GET /lineage/resource/{resource_id}`
+- `GET /onboarding/checklist`
+- `POST /backups/verify`
+- `POST /webhooks/rotate-all`
+- `POST /orgs/{org_id}/keys/rotate-all`
 
 ## SDKs
 - Python: `sdk/python`
@@ -136,6 +149,10 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `docs/SUPPORT_SLA.md`
 - `docs/REFERENCE_ARCHITECTURES.md`
 - `docs/COMPLIANCE_REPORTING.md`
+- `docs/GATEWAY_INTEGRATIONS.md`
+- `docs/BENCHMARKS.md`
+- `docs/MARKETPLACE.md`
+- `docs/CONTROL_MAPPING_UI.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`

@@ -311,6 +311,14 @@ def init_db() -> None:
                 reason TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS drift_alerts (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                evaluation_id TEXT NOT NULL,
+                old_decision TEXT NOT NULL,
+                new_decision TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS webhook_deliveries (
                 id TEXT PRIMARY KEY,
                 webhook_id TEXT NOT NULL,

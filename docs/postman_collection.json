@@ -203,6 +203,39 @@
       "response": []
     },
     {
+      "name": "Verify Backup",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/backups/verify",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "backups",
+            "verify"
+          ],
+          "query": [
+            {
+              "key": "path",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Metrics",
       "request": {
         "method": "GET",
@@ -802,6 +835,35 @@
             "keys",
             "{key_id}",
             "revoke"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Rotate All Keys",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/orgs/{org_id}/keys/rotate-all",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "orgs",
+            "{org_id}",
+            "keys",
+            "rotate-all"
           ]
         }
       },
@@ -1542,6 +1604,41 @@
       "response": []
     },
     {
+      "name": "Approvals Quorum",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/approvals/quorum",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "approvals",
+            "quorum"
+          ],
+          "query": [
+            {
+              "key": "required",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Rollback Policy",
       "request": {
         "method": "POST",
@@ -1618,6 +1715,39 @@
       "response": []
     },
     {
+      "name": "Simulate Policy Batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/simulate/batch",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "simulate",
+            "batch"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Export Policy Rego",
       "request": {
         "method": "GET",
@@ -1641,6 +1771,65 @@
             "{policy_id}",
             "rego"
           ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Export Policy Bundle",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/bundle",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "bundle"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Import Policy Bundle",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/bundle/import",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "bundle",
+            "import"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
         }
       },
       "response": []
@@ -1990,6 +2179,33 @@
             "evaluations",
             "{evaluation_id}",
             "replay"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Drift Alerts",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/drift/alerts",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "drift",
+            "alerts"
           ]
         }
       },
@@ -2611,6 +2827,33 @@
       "response": []
     },
     {
+      "name": "Risk Anomalies",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/risk/anomalies",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "risk",
+            "anomalies"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Create Webhook",
       "request": {
         "method": "POST",
@@ -2689,6 +2932,33 @@
             "webhooks",
             "{webhook_id}",
             "rotate-secret"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Rotate All Webhook Secrets",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/webhooks/rotate-all",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "webhooks",
+            "rotate-all"
           ]
         }
       },
@@ -2840,6 +3110,74 @@
               "value": ""
             }
           ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Access Query",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/access/query",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "access",
+            "query"
+          ],
+          "query": [
+            {
+              "key": "principal",
+              "value": ""
+            },
+            {
+              "key": "action",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Lint Policy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/lint",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "lint"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
         }
       },
       "response": []
@@ -3030,6 +3368,88 @@
           "path": [
             "evidence",
             "pack"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Evidence Timeline",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evidence/timeline",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evidence",
+            "timeline"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Resource Lineage",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/lineage/resource/{resource_id}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lineage",
+            "resource",
+            "{resource_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Onboarding Checklist",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/onboarding/checklist",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "onboarding",
+            "checklist"
           ]
         }
       },
