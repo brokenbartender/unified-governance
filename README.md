@@ -2,13 +2,21 @@
 
 Drop-in policy-as-code and evidence engine for third-party + AI data access governance.
 
-## Quick Start
+## Quick Start (Local)
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn src.app:app --reload
+```
+
+Open http://127.0.0.1:8000/docs for the API UI.
+
+## Quick Start (Docker + Postgres)
+
+```powershell
+docker compose up --build
 ```
 
 Open http://127.0.0.1:8000/docs for the API UI.

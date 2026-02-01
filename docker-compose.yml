@@ -1,0 +1,25 @@
+﻿services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ugov
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ugov_db:/var/lib/postgresql/data
+
+  app:
+    build: .
+    environment:
+      DB_URL: postgresql://postgres:postgres@db:5432/ugov
+      EVIDENCE_HMAC_SECRET: change-me
+      RETENTION_DAYS: 90
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+volumes:
+  ugov_db:

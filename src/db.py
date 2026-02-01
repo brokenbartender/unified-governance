@@ -9,22 +9,99 @@ from typing import Iterator
 
 from .settings import settings
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # pragma: no cover - optional dependency
+    psycopg = None
+    dict_row = None
+
+
+DB_KIND = "postgres" if settings.db_url and settings.db_url.startswith("postgres") else "sqlite"
+
 
 def _ensure_db_dir() -> None:
+    if DB_KIND != "sqlite":
+        return
     db_dir = os.path.dirname(os.path.abspath(settings.db_path))
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
 
 
-def _connect() -> sqlite3.Connection:
+def _translate_query(query: str) -> str:
+    if DB_KIND != "postgres":
+        return query
+    translated = []
+    in_string = False
+    for char in query:
+        if char == "'":
+            in_string = not in_string
+            translated.append(char)
+            continue
+        if char == "?" and not in_string:
+            translated.append("%s")
+        else:
+            translated.append(char)
+    return "".join(translated)
+
+
+class CursorWrapper:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    @property
+    def rowcount(self) -> int:
+        return self._cursor.rowcount
+
+
+class ConnWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, query: str, params: tuple | list = ()) -> CursorWrapper:
+        q = _translate_query(query)
+        cur = self._conn.execute(q, params)
+        return CursorWrapper(cur)
+
+    def executemany(self, query: str, params: list[tuple]) -> None:
+        q = _translate_query(query)
+        self._conn.executemany(q, params)
+
+    def executescript(self, script: str) -> None:
+        if DB_KIND == "sqlite":
+            self._conn.executescript(script)
+            return
+        statements = [stmt.strip() for stmt in script.split(";") if stmt.strip()]
+        for stmt in statements:
+            self._conn.execute(stmt)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()
+
+
+def _connect() -> ConnWrapper:
+    if DB_KIND == "postgres":
+        if psycopg is None:
+            raise RuntimeError("psycopg is required for Postgres connections")
+        conn = psycopg.connect(settings.db_url, row_factory=dict_row)
+        return ConnWrapper(conn)
     _ensure_db_dir()
     conn = sqlite3.connect(settings.db_path)
     conn.row_factory = sqlite3.Row
-    return conn
+    return ConnWrapper(conn)
 
 
 @contextmanager
-def get_conn() -> Iterator[sqlite3.Connection]:
+def get_conn() -> Iterator[ConnWrapper]:
     conn = _connect()
     try:
         yield conn
@@ -33,12 +110,18 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+def _column_exists(conn: ConnWrapper, table: str, column: str) -> bool:
+    if DB_KIND == "postgres":
+        row = conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?",
+            (table, column),
+        ).fetchone()
+        return row is not None
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(row[1] == column for row in rows)
 
 
-def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+def _add_column_if_missing(conn: ConnWrapper, table: str, column: str, col_type: str) -> None:
     if not _column_exists(conn, table, column):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
@@ -63,9 +146,7 @@ def init_db() -> None:
                 org_id TEXT NOT NULL,
                 user_id TEXT NOT NULL,
                 role TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(org_id) REFERENCES orgs(id),
-                FOREIGN KEY(user_id) REFERENCES users(id)
+                created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS api_keys (
                 id TEXT PRIMARY KEY,
@@ -75,16 +156,14 @@ def init_db() -> None:
                 scopes_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 last_used_at TEXT,
-                revoked_at TEXT,
-                FOREIGN KEY(org_id) REFERENCES orgs(id)
+                revoked_at TEXT
             );
             CREATE TABLE IF NOT EXISTS sso_configs (
                 id TEXT PRIMARY KEY,
                 org_id TEXT NOT NULL,
                 provider TEXT NOT NULL,
                 metadata_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(org_id) REFERENCES orgs(id)
+                created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS policies (
                 id TEXT PRIMARY KEY,
@@ -115,9 +194,7 @@ def init_db() -> None:
                 rationale TEXT,
                 created_at TEXT NOT NULL,
                 prev_hash TEXT,
-                record_hash TEXT,
-                FOREIGN KEY(policy_id) REFERENCES policies(id),
-                FOREIGN KEY(resource_id) REFERENCES resources(id)
+                record_hash TEXT
             );
             """
         )
@@ -136,7 +213,11 @@ def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
 
-def row_to_dict(row: sqlite3.Row) -> dict:
+def row_to_dict(row) -> dict:
+    if row is None:
+        return {}
+    if isinstance(row, dict):
+        return row
     return dict(row)
 
 

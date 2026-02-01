@@ -2,7 +2,7 @@
 
 ## Components
 - API service (FastAPI)
-- SQLite persistence (orgs, users, memberships, api keys, policies, resources with external IDs, evaluations)
+- SQLite or Postgres persistence (orgs, users, memberships, api keys, policies, resources with external IDs, evaluations)
 - Policy engine (allow/deny with attributes)
 - Evidence export (JSON/CSV with HMAC signature + hash chain)
 - Retention enforcement (configurable days)
