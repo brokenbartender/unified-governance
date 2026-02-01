@@ -41,11 +41,19 @@ Open http://127.0.0.1:8000/docs for the API UI.
 - `GET /policies/{policy_id}/opa`
 - `POST /resources`
 - `POST /evaluations`
+- `GET /evidence/verify`
 - `POST /evidence/retain`
 - `GET /evidence/export` (JSON) or `?format=csv` (CSV + signature header)
 - `GET /connectors`
 - `POST /scim/Users`
 - `GET /scim/Users`
+
+## SDKs
+- Python: `sdk/python`
+- TypeScript: `sdk/typescript`
+
+## Integration Guides
+- `docs/INTEGRATION_GUIDES.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`
