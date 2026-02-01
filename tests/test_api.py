@@ -362,3 +362,5 @@ def test_webhook_create_and_test():
     wh_id = wh.json()["id"]
     test = client.post(f"/webhooks/{wh_id}/test", headers=headers)
     assert test.status_code == 200
+    retry = client.post(f"/webhooks/{wh_id}/retry", headers=headers)
+    assert retry.status_code == 200

@@ -21,3 +21,4 @@ Resources accept `ai_metadata`:
 - Create with `POST /webhooks`.
 - Test delivery with `POST /webhooks/{id}/test`.
 - Set `ENABLE_WEBHOOK_DELIVERY=true` to enable outbound delivery.
+- Deliveries include `X-Webhook-Signature` header (sha256 of secret + payload).

@@ -442,6 +442,7 @@ def admin() -> str:
           <button onclick="searchEvidence(0)">Search</button>
           <button onclick="verifyEvidence()">Verify Chain</button>
           <button onclick="exportEvidence()">Export JSON</button>
+          <button onclick="exportEvidenceCsv()">Export CSV</button>
           <pre id="evidenceOut">{}</pre>
         </div>
       </div>
@@ -633,6 +634,10 @@ def admin() -> str:
       async function exportEvidence() {
         const data = await api('/evidence/export');
         document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function exportEvidenceCsv() {
+        window.open('/evidence/export?format=csv', '_blank');
       }
     </script>
   </body>
@@ -1806,11 +1811,12 @@ def test_webhook(
     created_at = now_iso()
     success = 1 if status_code and status_code < 300 else 0
     attempts = 1
+    next_attempt_at = None if success else (datetime.utcnow() + timedelta(seconds=2)).isoformat() + "Z"
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, attempts, success, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (delivery_id, webhook_id, status_code, response_body, attempts, success, created_at),
+            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, attempts, next_attempt_at, success, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (delivery_id, webhook_id, status_code, response_body, attempts, next_attempt_at, success, created_at),
         )
     return WebhookDelivery(
         id=delivery_id,
@@ -1818,6 +1824,7 @@ def test_webhook(
         status_code=status_code,
         response_body=response_body,
         attempts=attempts,
+        next_attempt_at=next_attempt_at,
         success=bool(success),
         created_at=created_at,
     )
@@ -1866,13 +1873,20 @@ def retry_webhook(
     )
     delivery_id = str(uuid.uuid4())
     created_at = now_iso()
-    attempts = 1
+    with get_conn() as conn:
+        last = conn.execute(
+            "SELECT attempts FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT 1",
+            (webhook_id,),
+        ).fetchone()
+    attempts = (last["attempts"] if last else 0) + 1
     success = 1 if status_code and status_code < 300 else 0
+    backoff = 2 ** min(attempts, 6)
+    next_attempt_at = None if success else (datetime.utcnow() + timedelta(seconds=backoff)).isoformat() + "Z"
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, attempts, success, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (delivery_id, webhook_id, status_code, response_body, attempts, success, created_at),
+            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, attempts, next_attempt_at, success, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (delivery_id, webhook_id, status_code, response_body, attempts, next_attempt_at, success, created_at),
         )
     return WebhookDelivery(
         id=delivery_id,
@@ -1880,6 +1894,7 @@ def retry_webhook(
         status_code=status_code,
         response_body=response_body,
         attempts=attempts,
+        next_attempt_at=next_attempt_at,
         success=bool(success),
         created_at=created_at,
     )
