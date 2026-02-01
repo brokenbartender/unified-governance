@@ -294,6 +294,14 @@ def init_db() -> None:
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS abuse_events (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                bucket TEXT NOT NULL,
+                score INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS webhook_deliveries (
                 id TEXT PRIMARY KEY,
                 webhook_id TEXT NOT NULL,

@@ -23,6 +23,8 @@ This document is a machine-readable summary of the current system capabilities.
 - **SIEM export:** CEF/JSON export for Splunk/Sentinel.
 - **Ticketing + catalog:** Exception requests + catalog mappings.
 - **Backup:** Snapshot endpoint for SQLite deployments.
+- **Licensing:** Optional strict license enforcement.
+- **Security:** Abuse scoring + secret provider config.
 
 ## Clarifications
 - **SSO/SCIM stubs:** Provide API surface + UI flows for initiation/provisioning. They do not include full IdP handshakes, token validation, or vendor-specific provisioning callbacks.

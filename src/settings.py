@@ -17,6 +17,9 @@ class Settings:
     evidence_vault_path: str = os.getenv("EVIDENCE_VAULT_PATH", "./output/evidence_vault.log")
     risk_score_threshold: int = int(os.getenv("RISK_SCORE_THRESHOLD", "7"))
     attestations_public_ledger: str | None = os.getenv("ATTESTATIONS_PUBLIC_LEDGER")
+    secret_provider: str | None = os.getenv("SECRET_PROVIDER")
+    license_key: str | None = os.getenv("LICENSE_KEY")
+    license_strict: bool = os.getenv("LICENSE_STRICT", "false").lower() == "true"
     retention_days: int = int(os.getenv("RETENTION_DAYS", "90"))
     decision_log_retention_days: int = int(os.getenv("DECISION_LOG_RETENTION_DAYS", "180"))
     webhook_delivery_retention_days: int = int(os.getenv("WEBHOOK_DELIVERY_RETENTION_DAYS", "30"))

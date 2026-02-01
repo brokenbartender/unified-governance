@@ -27,6 +27,11 @@
 | Ops | Maintenance cleanup | Complete |
 | Ops | Metrics + health endpoints | Complete |
 | Enforcement | /enforce + SDK middleware | Complete |
+| Security | License enforcement | Complete |
+| Security | Abuse scoring | Complete |
+| Security | Secret provider config | Complete |
+| Deploy | Air-gapped install | Complete |
+| Commercial | Billing usage model | Complete |
 | DevEx | SDKs (Python/TypeScript) | Complete |
 | DevEx | OpenAPI + Postman | Complete |
 | Deploy | Docker + Postgres | Complete |

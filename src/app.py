@@ -86,6 +86,9 @@ from .schemas import (
     ExceptionRequest,
     ExceptionRequestCreate,
     BreakGlassResponse,
+    AbuseEvent,
+    BillingUsage,
+    LicenseStatus,
 )
 from .settings import settings
 
@@ -100,12 +103,16 @@ def _startup() -> None:
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-Id", str(uuid.uuid4()))
+    if settings.license_strict and not settings.license_key:
+        if request.url.path not in {"/health", "/v1/health", "/status/live", "/status/ready", "/license/status"}:
+            return Response(content="License required", status_code=402)
     response = await call_next(request)
     response.headers.setdefault("X-Request-Id", request_id)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     content_type = response.headers.get("content-type", "")
     if content_type.startswith("text/html"):
         response.headers.setdefault(
@@ -212,15 +219,22 @@ def _deliver_webhook(url: str, secret: str | None, payload: dict) -> tuple[int |
 _rate_limiter: dict[str, list[float]] = {}
 
 
-def _rate_limit(org_id: str) -> None:
+def _rate_limit(org_id: str, bucket: str) -> None:
     now = time.time()
     window = 60
-    hits = _rate_limiter.get(org_id, [])
+    key = f"{org_id}:{bucket}"
+    hits = _rate_limiter.get(key, [])
     hits = [t for t in hits if now - t < window]
     if len(hits) >= settings.rate_limit_per_min:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO abuse_events (id, org_id, bucket, score, reason, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), org_id, bucket, 10, "Rate limit exceeded", now_iso()),
+            )
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     hits.append(now)
-    _rate_limiter[org_id] = hits
+    _rate_limiter[key] = hits
 
 
 def _get_key_row(raw_key: str | None) -> dict:
@@ -418,6 +432,18 @@ def metrics() -> Response:
         f"ug_evaluations_deny_total {_count(denies)}",
     ]
     return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+
+
+@app.get("/license/status", response_model=LicenseStatus)
+def license_status() -> LicenseStatus:
+    if settings.license_strict and not settings.license_key:
+        return LicenseStatus(status="missing", detail="LICENSE_KEY required")
+    return LicenseStatus(status="ok", detail="License check disabled or key present")
+
+
+@app.get("/secrets/status")
+def secrets_status() -> dict:
+    return {"provider": settings.secret_provider or "env"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -2166,7 +2192,7 @@ def evaluate(
     key_row: dict = Depends(_require_org_and_scopes(["evaluations:write"])),
 ) -> Evaluation:
     org_id = key_row["org_id"]
-    _rate_limit(org_id)
+    _rate_limit(org_id, "evaluations")
     with get_conn() as conn:
         policy_row = conn.execute(
             "SELECT * FROM policies WHERE id = ? AND org_id = ?",
@@ -2274,6 +2300,7 @@ def enforce(
     key_row: dict = Depends(_require_org_and_scopes(["evaluations:write", "policies:read", "resources:read"])),
 ) -> EnforcementDecision:
     org_id = key_row["org_id"]
+    _rate_limit(org_id, "enforce")
     with get_conn() as conn:
         policy_row = conn.execute(
             "SELECT * FROM policies WHERE id = ? AND org_id = ?",
@@ -2538,7 +2565,7 @@ def evidence_search(
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
 ) -> EvidenceSearchResult:
     org_id = key_row["org_id"]
-    _rate_limit(org_id)
+    _rate_limit(org_id, "evidence_search")
     conditions = ["org_id = ?"]
     params: list = [org_id]
     if principal:
@@ -2715,7 +2742,7 @@ def export_evidence(
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
 ):
     org_id = key_row["org_id"]
-    _rate_limit(org_id)
+    _rate_limit(org_id, "evidence_export")
     conditions = ["org_id = ?"]
     params: list = [org_id]
     if principal:
@@ -2894,6 +2921,19 @@ def list_exception_requests(
             (org_id,),
         ).fetchall()
     return [ExceptionRequest(**row_to_dict(row)) for row in rows]
+
+
+@app.get("/abuse/events", response_model=list[AbuseEvent])
+def list_abuse_events(
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> list[AbuseEvent]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM abuse_events WHERE org_id = ? ORDER BY created_at DESC LIMIT 200",
+            (org_id,),
+        ).fetchall()
+    return [AbuseEvent(**row_to_dict(row)) for row in rows]
 
 
 @app.post("/webhooks", response_model=Webhook)
@@ -3249,6 +3289,24 @@ def org_usage(
         total_resources=total_resources,
         total_webhooks=total_webhooks,
         total_users=total_users,
+    )
+
+
+@app.get("/billing/usage", response_model=BillingUsage)
+def billing_usage(
+    org_id: str,
+    period: str | None = None,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> BillingUsage:
+    summary = org_usage(org_id, period, key_row)
+    estimated_cost = round((summary.total_evaluations * 0.00001) + (summary.total_evidence_stored_mb * 0.02) + (summary.active_api_keys * 0.1), 2)
+    return BillingUsage(
+        org_id=summary.org_id,
+        period=summary.period,
+        total_evaluations=summary.total_evaluations,
+        total_evidence_stored_mb=summary.total_evidence_stored_mb,
+        active_api_keys=summary.active_api_keys,
+        estimated_cost=estimated_cost,
     )
 
 

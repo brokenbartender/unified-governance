@@ -76,6 +76,7 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /catalog/mappings`
 - `POST /ticketing/exceptions`
 - `GET /ticketing/exceptions`
+- `GET /abuse/events`
 - `POST /maintenance/cleanup`
 - `GET /status/live`
 - `GET /status/ready`
@@ -83,6 +84,9 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /sla/report`
 - `GET /metrics`
 - `POST /backups/create`
+- `GET /billing/usage`
+- `GET /license/status`
+- `GET /secrets/status`
 
 ## SDKs
 - Python: `sdk/python`
@@ -121,6 +125,13 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `docs/ACQUISITION_DATA_ROOM.md`
 - `docs/RISK_REDUCTION_REPORT.md`
 - `docs/ENFORCEMENT.md`
+- `docs/SECURITY_HARDENING.md`
+- `docs/DEPLOYMENT_ENTERPRISE.md`
+- `docs/AIRGAP.md`
+- `docs/BILLING.md`
+- `docs/LICENSE.md`
+- `docs/SUPPORT_SLA.md`
+- `docs/REFERENCE_ARCHITECTURES.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`

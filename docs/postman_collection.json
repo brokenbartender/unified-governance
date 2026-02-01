@@ -229,6 +229,60 @@
       "response": []
     },
     {
+      "name": "License Status",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/license/status",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "license",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Secrets Status",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/secrets/status",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "secrets",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Root",
       "request": {
         "method": "GET",
@@ -2444,6 +2498,33 @@
       "response": []
     },
     {
+      "name": "List Abuse Events",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/abuse/events",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "abuse",
+            "events"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Create Webhook",
       "request": {
         "method": "POST",
@@ -2762,6 +2843,43 @@
             "usage"
           ],
           "query": [
+            {
+              "key": "period",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Billing Usage",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/billing/usage",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "billing",
+            "usage"
+          ],
+          "query": [
+            {
+              "key": "org_id",
+              "value": ""
+            },
             {
               "key": "period",
               "value": ""

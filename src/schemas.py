@@ -422,6 +422,29 @@ class ExceptionRequestCreate(BaseModel):
     reason: str
 
 
+class AbuseEvent(BaseModel):
+    id: str
+    org_id: str
+    bucket: str
+    score: int
+    reason: str
+    created_at: str
+
+
+class BillingUsage(BaseModel):
+    org_id: str
+    period: str
+    total_evaluations: int
+    total_evidence_stored_mb: float
+    active_api_keys: int
+    estimated_cost: float
+
+
+class LicenseStatus(BaseModel):
+    status: str
+    detail: str | None = None
+
+
 class ScimUser(BaseModel):
     id: str
     userName: str

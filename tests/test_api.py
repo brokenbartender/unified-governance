@@ -402,6 +402,17 @@ def test_status_and_metrics():
     assert "ug_orgs_total" in metrics.text
 
 
+def test_license_and_billing():
+    org_id, api_key, _ = _create_org_and_key(scopes=["orgs:read"])
+    headers = {"X-API-Key": api_key}
+
+    status = client.get("/license/status")
+    assert status.status_code == 200
+
+    billing = client.get(f"/billing/usage?org_id={org_id}", headers=headers)
+    assert billing.status_code == 200
+
+
 def test_break_glass_key():
     org_id, api_key, _ = _create_org_and_key(scopes=["orgs:write"])
     headers = {"X-API-Key": api_key}

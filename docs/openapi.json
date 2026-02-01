@@ -185,6 +185,43 @@
         }
       }
     },
+    "/license/status": {
+      "get": {
+        "summary": "License Status",
+        "operationId": "license_status_license_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/secrets/status": {
+      "get": {
+        "summary": "Secrets Status",
+        "operationId": "secrets_status_secrets_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Secrets Status Secrets Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -4410,6 +4447,56 @@
         }
       }
     },
+    "/abuse/events": {
+      "get": {
+        "summary": "List Abuse Events",
+        "operationId": "list_abuse_events_abuse_events_get",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AbuseEvent"
+                  },
+                  "title": "Response List Abuse Events Abuse Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/webhooks": {
       "post": {
         "summary": "Create Webhook",
@@ -5017,6 +5104,77 @@
         }
       }
     },
+    "/billing/usage": {
+      "get": {
+        "summary": "Billing Usage",
+        "operationId": "billing_usage_billing_usage_get",
+        "parameters": [
+          {
+            "name": "org_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Org Id"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingUsage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orgs/{org_id}/export": {
       "get": {
         "summary": "Export Org",
@@ -5167,6 +5325,44 @@
   },
   "components": {
     "schemas": {
+      "AbuseEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "org_id": {
+            "type": "string",
+            "title": "Org Id"
+          },
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "score": {
+            "type": "integer",
+            "title": "Score"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "org_id",
+          "bucket",
+          "score",
+          "reason",
+          "created_at"
+        ],
+        "title": "AbuseEvent"
+      },
       "AiMetadata": {
         "properties": {
           "model_type": {
@@ -5379,6 +5575,44 @@
           "api_key"
         ],
         "title": "ApiKeyIssued"
+      },
+      "BillingUsage": {
+        "properties": {
+          "org_id": {
+            "type": "string",
+            "title": "Org Id"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "total_evaluations": {
+            "type": "integer",
+            "title": "Total Evaluations"
+          },
+          "total_evidence_stored_mb": {
+            "type": "number",
+            "title": "Total Evidence Stored Mb"
+          },
+          "active_api_keys": {
+            "type": "integer",
+            "title": "Active Api Keys"
+          },
+          "estimated_cost": {
+            "type": "number",
+            "title": "Estimated Cost"
+          }
+        },
+        "type": "object",
+        "required": [
+          "org_id",
+          "period",
+          "total_evaluations",
+          "total_evidence_stored_mb",
+          "active_api_keys",
+          "estimated_cost"
+        ],
+        "title": "BillingUsage"
       },
       "BreakGlassResponse": {
         "properties": {
@@ -5926,6 +6160,30 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LicenseStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LicenseStatus"
       },
       "Membership": {
         "properties": {
