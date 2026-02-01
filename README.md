@@ -41,11 +41,14 @@ Open http://127.0.0.1:8000/docs for the API UI.
 - `POST /evidence/retain`
 - `GET /evidence/export` (JSON) or `?format=csv` (CSV + signature header)
 - `GET /connectors`
+- `POST /scim/Users`
+- `GET /scim/Users`
 
 ## Files
 - `src/app.py` FastAPI entrypoint
 - `src/policy_engine.py` Policy evaluation logic
 - `docs/PRD.md` Product requirements
+- `docs/IDENTITY.md` SSO/SCIM notes
 
 ## Notes
 This is an MVP scaffold intended for demo, pilot, or acquisition discussions.

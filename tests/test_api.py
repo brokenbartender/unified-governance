@@ -170,3 +170,31 @@ def test_opa_export():
     export_resp = client.get(f"/policies/{policy_id}/opa", headers=headers)
     assert export_resp.status_code == 200
     assert export_resp.json()["policy_id"] == policy_id
+
+
+def test_scim_user_flow():
+    _, api_key, _ = _create_org_and_key(scopes=["scim:read", "scim:write"])
+    headers = {"X-API-Key": api_key}
+
+    create_resp = client.post(
+        "/scim/Users",
+        headers=headers,
+        json={
+            "userName": "alice@example.com",
+            "name": {"formatted": "Alice Example"},
+            "emails": [{"value": "alice@example.com", "primary": True}],
+            "active": True,
+        },
+    )
+    assert create_resp.status_code == 200
+    user_id = create_resp.json()["id"]
+
+    list_resp = client.get("/scim/Users", headers=headers)
+    assert list_resp.status_code == 200
+    assert list_resp.json()["totalResults"] >= 1
+
+    get_resp = client.get(f"/scim/Users/{user_id}", headers=headers)
+    assert get_resp.status_code == 200
+
+    delete_resp = client.delete(f"/scim/Users/{user_id}", headers=headers)
+    assert delete_resp.status_code == 200

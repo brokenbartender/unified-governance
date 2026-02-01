@@ -38,7 +38,23 @@ class Membership(BaseModel):
 
 class ApiKeyCreate(BaseModel):
     name: str
-    scopes: List[str] = Field(default_factory=lambda: ["policies:read", "policies:write", "resources:read", "resources:write", "evaluations:read", "evaluations:write", "evidence:read", "connectors:read"])
+    scopes: List[str] = Field(
+        default_factory=lambda: [
+            "orgs:read",
+            "orgs:write",
+            "policies:read",
+            "policies:write",
+            "resources:read",
+            "resources:write",
+            "evaluations:read",
+            "evaluations:write",
+            "evidence:read",
+            "evidence:write",
+            "connectors:read",
+            "scim:read",
+            "scim:write",
+        ]
+    )
 
 
 class ApiKey(BaseModel):
@@ -141,3 +157,25 @@ class OpaPolicyExport(BaseModel):
     org_id: str
     rule: Dict[str, Any]
     opa_input: Dict[str, Any]
+
+
+class ScimUser(BaseModel):
+    id: str
+    userName: str
+    name: Dict[str, Any]
+    emails: List[Dict[str, Any]]
+    active: bool = True
+
+
+class ScimUserCreate(BaseModel):
+    userName: str
+    name: Dict[str, Any]
+    emails: List[Dict[str, Any]]
+    active: bool = True
+
+
+class ScimListResponse(BaseModel):
+    totalResults: int
+    itemsPerPage: int
+    startIndex: int
+    Resources: List[ScimUser]

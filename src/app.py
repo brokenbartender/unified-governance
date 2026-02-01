@@ -33,6 +33,9 @@ from .schemas import (
     Resource,
     ResourceCreate,
     RetentionStatus,
+    ScimListResponse,
+    ScimUser,
+    ScimUserCreate,
     SsoConfig,
     SsoConfigCreate,
     User,
@@ -88,11 +91,6 @@ def _require_org_and_scopes(scopes: list[str]):
         return key_row
 
     return _dependency
-
-
-def require_org_id(x_api_key: str | None = Header(default=None)) -> str:
-    key_row = _get_key_row(x_api_key)
-    return key_row["org_id"]
 
 
 @app.get("/health")
@@ -309,6 +307,96 @@ def list_sso_configs(
         )
         for row in rows
     ]
+
+
+@app.post("/scim/Users", response_model=ScimUser)
+def scim_create_user(
+    payload: ScimUserCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:write"])),
+) -> ScimUser:
+    _ = key_row
+    user_id = str(uuid.uuid4())
+    created_at = now_iso()
+    email = payload.userName
+    display_name = payload.name.get("formatted") or payload.name.get("givenName") or payload.userName
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, email, display_name, created_at),
+        )
+    return ScimUser(
+        id=user_id,
+        userName=payload.userName,
+        name=payload.name,
+        emails=payload.emails,
+        active=payload.active,
+    )
+
+
+@app.get("/scim/Users", response_model=ScimListResponse)
+def scim_list_users(
+    startIndex: int = 1,
+    count: int = 100,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:read"])),
+) -> ScimListResponse:
+    _ = key_row
+    offset = max(startIndex - 1, 0)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (count, offset),
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) as total FROM users").fetchone()
+    users = [
+        ScimUser(
+            id=row["id"],
+            userName=row["email"],
+            name={"formatted": row["name"]},
+            emails=[{"value": row["email"], "primary": True}],
+            active=True,
+        )
+        for row in rows
+    ]
+    total_results = total["total"] if isinstance(total, dict) else total[0]
+    return ScimListResponse(
+        totalResults=total_results,
+        itemsPerPage=count,
+        startIndex=startIndex,
+        Resources=users,
+    )
+
+
+@app.get("/scim/Users/{user_id}", response_model=ScimUser)
+def scim_get_user(
+    user_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:read"])),
+) -> ScimUser:
+    _ = key_row
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return ScimUser(
+        id=row["id"],
+        userName=row["email"],
+        name={"formatted": row["name"]},
+        emails=[{"value": row["email"], "primary": True}],
+        active=True,
+    )
+
+
+@app.delete("/scim/Users/{user_id}", response_model=dict)
+def scim_delete_user(
+    user_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:write"])),
+) -> dict:
+    _ = key_row
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    return {"deleted": True}
 
 
 @app.post("/policies", response_model=Policy)
