@@ -50,6 +50,8 @@ from .schemas import (
     TeamCreate,
     TeamMembership,
     TeamMembershipCreate,
+    TrustCheck,
+    UsageSummary,
     User,
     UserCreate,
 )
@@ -149,6 +151,33 @@ def root() -> str:
         gap: 12px;
         margin-top: 20px;
       }
+      .trust {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid #e2e8f0;
+      }
+      .trust table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-size: 14px;
+      }
+      .trust th, .trust td {
+        text-align: left;
+        padding: 8px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        background: #ecfeff;
+        border: 1px solid #a5f3fc;
+        border-radius: 999px;
+        font-size: 12px;
+        color: #0f172a;
+      }
       a {
         display: inline-block;
         padding: 10px 14px;
@@ -177,8 +206,39 @@ def root() -> str:
           <a href="/health">Health Check</a>
         </div>
         <p class="meta">API base: <code>/</code> | Auth: <code>X-API-Key</code> header</p>
+        <div class="trust">
+          <div class="badge">System Integrity: <strong id="trustStatus">Checking…</strong></div>
+          <table>
+            <thead>
+              <tr><th>Timestamp</th><th>Status</th><th>Records Checked</th></tr>
+            </thead>
+            <tbody id="trustRows"></tbody>
+          </table>
+          <p class="meta">Trust badge snippet (embed anywhere):</p>
+          <pre><code id="trustSnippet">&lt;script src="/trust-badge.js"&gt;&lt;/script&gt;&lt;div id="ug-trust-badge"&gt;&lt;/div&gt;</code></pre>
+        </div>
       </div>
     </div>
+    <script>
+      async function loadTrust() {
+        const res = await fetch('/trust/last-checks');
+        const data = res.ok ? await res.json() : [];
+        const rows = document.getElementById('trustRows');
+        rows.innerHTML = '';
+        if (data.length === 0) {
+          document.getElementById('trustStatus').textContent = 'No checks yet';
+          return;
+        }
+        const latest = data[0];
+        document.getElementById('trustStatus').textContent = latest.valid ? 'Verified' : 'Failed';
+        data.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${item.created_at}</td><td>${item.valid ? 'Verified' : 'Failed'}</td><td>${item.checked_records}</td>`;
+          rows.appendChild(tr);
+        });
+      }
+      loadTrust();
+    </script>
   </body>
 </html>
 """
@@ -261,6 +321,8 @@ def admin() -> str:
           <input id="resourceType" value="file" />
           <label>Attributes (JSON)</label>
           <textarea id="resourceAttrs" rows="4">{\"sensitivity\":\"high\"}</textarea>
+          <label>AI Metadata (JSON)</label>
+          <textarea id="resourceAI" rows="4">{\"model_type\":\"llm\",\"model_provider\":\"openai\",\"sensitivity_level\":4,\"is_governed\":true}</textarea>
           <button onclick="createResource()">Create Resource</button>
         </div>
 
@@ -343,7 +405,8 @@ def admin() -> str:
         const name = document.getElementById('resourceName').value;
         const type = document.getElementById('resourceType').value;
         const attributes = JSON.parse(document.getElementById('resourceAttrs').value);
-        await api('/resources', 'POST', { name, type, attributes });
+        const ai_metadata = JSON.parse(document.getElementById('resourceAI').value || '{}');
+        await api('/resources', 'POST', { name, type, attributes, ai_metadata });
         await loadResources();
       }
 
@@ -960,9 +1023,10 @@ def create_resource(
     org_id = key_row["org_id"]
     resource_id = str(uuid.uuid4())
     created_at = now_iso()
+    ai_metadata = payload.ai_metadata.model_dump() if payload.ai_metadata else {}
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO resources (id, org_id, name, type, attributes_json, source_system, external_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO resources (id, org_id, name, type, attributes_json, source_system, external_id, ai_metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 resource_id,
                 org_id,
@@ -971,6 +1035,7 @@ def create_resource(
                 dump_json_field(payload.attributes),
                 payload.source_system,
                 payload.external_id,
+                dump_json_field(ai_metadata),
                 created_at,
             ),
         )
@@ -997,6 +1062,7 @@ def list_resources(key_row: dict = Depends(_require_org_and_scopes(["resources:r
                 attributes=parse_json_field(data["attributes_json"]),
                 source_system=data.get("source_system") or "manual",
                 external_id=data.get("external_id"),
+                ai_metadata=parse_json_field(data.get("ai_metadata_json", "")) or None,
                 created_at=data["created_at"],
             )
         )
@@ -1025,6 +1091,7 @@ def get_resource(
         attributes=parse_json_field(data["attributes_json"]),
         source_system=data.get("source_system") or "manual",
         external_id=data.get("external_id"),
+        ai_metadata=parse_json_field(data.get("ai_metadata_json", "")) or None,
         created_at=data["created_at"],
     )
 
@@ -1061,6 +1128,7 @@ def evaluate(
         attributes=parse_json_field(resource_data["attributes_json"]),
         source_system=resource_data.get("source_system") or "manual",
         external_id=resource_data.get("external_id"),
+        ai_metadata=parse_json_field(resource_data.get("ai_metadata_json", "")) or None,
         created_at=resource_data["created_at"],
     )
 
@@ -1174,9 +1242,23 @@ def verify_evidence_chain(
         }
         expected = _hash_record(payload_hash, prev_hash)
         if data.get("record_hash") != expected:
-            return EvidenceVerifyResult(valid=False, checked_records=len(rows), last_hash=prev_hash)
+            result = EvidenceVerifyResult(valid=False, checked_records=len(rows), last_hash=prev_hash)
+            with get_conn() as conn:
+                conn.execute(
+                    "INSERT INTO evidence_verifications (id, org_id, valid, checked_records, last_hash, created_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), org_id, 0, result.checked_records, result.last_hash, now_iso()),
+                )
+            return result
         prev_hash = expected
-    return EvidenceVerifyResult(valid=True, checked_records=len(rows), last_hash=prev_hash)
+    result = EvidenceVerifyResult(valid=True, checked_records=len(rows), last_hash=prev_hash)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO evidence_verifications (id, org_id, valid, checked_records, last_hash, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), org_id, 1, result.checked_records, result.last_hash, now_iso()),
+        )
+    return result
 
 
 @app.get("/evidence/export", response_model=EvidenceExport)
@@ -1209,11 +1291,12 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
             hashlib.sha256,
         ).hexdigest()
         content_hash = _hash_content(csv_data)
+        content_bytes = len(csv_data.encode("utf-8"))
         with get_conn() as conn:
             conn.execute(
-                "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, record_count, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (export_id, org_id, "csv", content_hash, signature, len(evaluations), exported_at),
+                "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, content_bytes, record_count, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (export_id, org_id, "csv", content_hash, signature, content_bytes, len(evaluations), exported_at),
             )
         return Response(
             content=csv_data,
@@ -1228,11 +1311,12 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
         hashlib.sha256,
     ).hexdigest()
     content_hash = _hash_content(json_payload)
+    content_bytes = len(json_payload.encode("utf-8"))
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, record_count, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (export_id, org_id, "json", content_hash, signature, len(evaluations), exported_at),
+            "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, content_bytes, record_count, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (export_id, org_id, "json", content_hash, signature, content_bytes, len(evaluations), exported_at),
         )
 
     return EvidenceExport(
@@ -1251,6 +1335,71 @@ def list_connector_metadata(key_row: dict = Depends(_require_org_and_scopes(["co
     return [meta.__dict__ for meta in list_connectors()]
 
 
+@app.get("/orgs/{org_id}/usage", response_model=UsageSummary)
+def org_usage(
+    org_id: str,
+    period: str | None = None,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> UsageSummary:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if period is None:
+        period = datetime.utcnow().strftime("%Y-%m")
+    try:
+        period_start = datetime.strptime(period + "-01", "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid period format, use YYYY-MM") from exc
+    if period_start.month == 12:
+        period_end = datetime(period_start.year + 1, 1, 1)
+    else:
+        period_end = datetime(period_start.year, period_start.month + 1, 1)
+    start_iso = period_start.isoformat() + "Z"
+    end_iso = period_end.isoformat() + "Z"
+
+    with get_conn() as conn:
+        eval_count_row = conn.execute(
+            "SELECT COUNT(*) as total FROM evaluations WHERE org_id = ? AND created_at >= ? AND created_at < ?",
+            (org_id, start_iso, end_iso),
+        ).fetchone()
+        export_rows = conn.execute(
+            "SELECT SUM(content_bytes) as total_bytes FROM evidence_exports WHERE org_id = ? AND created_at >= ? AND created_at < ?",
+            (org_id, start_iso, end_iso),
+        ).fetchone()
+        api_key_rows = conn.execute(
+            "SELECT COUNT(*) as total FROM api_keys WHERE org_id = ? AND revoked_at IS NULL",
+            (org_id,),
+        ).fetchone()
+    total_evaluations = eval_count_row["total"] if isinstance(eval_count_row, dict) else eval_count_row[0]
+    total_bytes = export_rows["total_bytes"] if isinstance(export_rows, dict) else export_rows[0]
+    total_bytes = total_bytes or 0
+    total_mb = round(total_bytes / (1024 * 1024), 2)
+    active_api_keys = api_key_rows["total"] if isinstance(api_key_rows, dict) else api_key_rows[0]
+
+    return UsageSummary(
+        org_id=org_id,
+        period=period,
+        total_evaluations=total_evaluations,
+        total_evidence_stored_mb=total_mb,
+        active_api_keys=active_api_keys,
+    )
+
+
+@app.get("/trust/last-checks", response_model=list[TrustCheck])
+def trust_last_checks() -> list[TrustCheck]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT valid, checked_records, created_at FROM evidence_verifications ORDER BY created_at DESC LIMIT 10"
+        ).fetchall()
+    return [
+        TrustCheck(
+            created_at=row["created_at"],
+            valid=bool(row["valid"]),
+            checked_records=row["checked_records"],
+        )
+        for row in rows
+    ]
+
+
 @app.get("/connectors/{connector_name}/sample")
 def connector_sample(
     connector_name: str,
@@ -1261,3 +1410,23 @@ def connector_sample(
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     return connector.sample_resources()
+
+
+@app.get("/trust-badge.js", response_class=Response)
+def trust_badge_script() -> Response:
+    script = """
+(() => {
+  async function load() {
+    const res = await fetch('/trust/last-checks');
+    const data = res.ok ? await res.json() : [];
+    const latest = data[0];
+    const el = document.getElementById('ug-trust-badge');
+    if (!el) return;
+    const status = latest && latest.valid ? 'Verified' : 'Unknown';
+    el.style.cssText = 'display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:#ecfeff;border:1px solid #a5f3fc;font-size:12px;color:#0f172a;';
+    el.textContent = `System Integrity: ${status}`;
+  }
+  load();
+})();
+"""
+    return Response(content=script, media_type="application/javascript")

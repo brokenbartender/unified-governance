@@ -25,6 +25,12 @@ class SnowflakeConnector(ConnectorBase):
                 },
                 "source_system": "snowflake",
                 "external_id": "snowflake-table-prod_customers",
+                "ai_metadata": {
+                    "model_type": "embedding",
+                    "model_provider": "openai",
+                    "sensitivity_level": 3,
+                    "is_governed": True,
+                },
             }
         ]
 

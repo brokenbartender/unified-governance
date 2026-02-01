@@ -25,6 +25,12 @@ class GoogleDriveConnector(ConnectorBase):
                 },
                 "source_system": "google-drive",
                 "external_id": "drive-file-123",
+                "ai_metadata": {
+                    "model_type": "llm",
+                    "model_provider": "openai",
+                    "sensitivity_level": 5,
+                    "is_governed": True,
+                },
             }
         ]
 

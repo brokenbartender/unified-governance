@@ -168,12 +168,20 @@ class Policy(PolicyCreate):
     created_at: str
 
 
+class AiMetadata(BaseModel):
+    model_type: Optional[str] = None
+    model_provider: Optional[str] = None
+    sensitivity_level: Optional[int] = None
+    is_governed: Optional[bool] = None
+
+
 class ResourceCreate(BaseModel):
     name: str
     type: str
     attributes: Dict[str, Any] = Field(default_factory=dict)
     source_system: str = "manual"
     external_id: Optional[str] = None
+    ai_metadata: Optional[AiMetadata] = None
 
 
 class Resource(ResourceCreate):
@@ -222,6 +230,20 @@ class EvidenceVerifyResult(BaseModel):
     valid: bool
     checked_records: int
     last_hash: Optional[str] = None
+
+
+class UsageSummary(BaseModel):
+    org_id: str
+    period: str
+    total_evaluations: int
+    total_evidence_stored_mb: float
+    active_api_keys: int
+
+
+class TrustCheck(BaseModel):
+    created_at: str
+    valid: bool
+    checked_records: int
 
 
 class OpaPolicyExport(BaseModel):

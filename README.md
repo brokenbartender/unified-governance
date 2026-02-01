@@ -39,6 +39,7 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `POST /orgs/{org_id}/keys/{key_id}/rotate`
 - `POST /orgs/{org_id}/keys/{key_id}/revoke`
 - `POST /orgs/{org_id}/sso`
+- `POST /orgs/{org_id}/usage`
 - `POST /policies`
 - `GET /policies/{policy_id}/opa`
 - `POST /resources`
@@ -60,6 +61,9 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 ## IaC
 - Helm chart: `iac/helm/unified-governance`
 - Terraform: `iac/terraform`
+
+## Trust Badge
+- `docs/TRUST_BADGE.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`

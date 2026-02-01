@@ -52,6 +52,12 @@ def test_policy_resource_evaluation_flow():
             "attributes": {"sensitivity": "high"},
             "source_system": "snowflake",
             "external_id": "table-abc",
+            "ai_metadata": {
+                "model_type": "llm",
+                "model_provider": "openai",
+                "sensitivity_level": 4,
+                "is_governed": True,
+            },
         },
     )
     assert resource_resp.status_code == 200
@@ -286,3 +292,46 @@ def test_rbac_team_role_membership_flow():
     list_memberships = client.get(f"/orgs/{org_id}/team-memberships", headers=headers)
     assert list_memberships.status_code == 200
     assert len(list_memberships.json()) >= 1
+
+
+def test_usage_endpoint():
+    org_id, api_key, _ = _create_org_and_key(scopes=["orgs:read", "policies:write", "resources:write", "evaluations:write", "evidence:read"])
+    headers = {"X-API-Key": api_key}
+
+    policy_resp = client.post(
+        "/policies",
+        headers=headers,
+        json={
+            "name": "Allow all",
+            "rule": {
+                "allowed_principals": ["*"],
+                "allowed_actions": ["*"],
+                "resource_types": ["*"],
+                "required_attributes": {},
+            },
+        },
+    )
+    resource_resp = client.post(
+        "/resources",
+        headers=headers,
+        json={
+            "name": "Usage Test",
+            "type": "db",
+            "attributes": {},
+        },
+    )
+    client.post(
+        "/evaluations",
+        headers=headers,
+        json={
+            "policy_id": policy_resp.json()["id"],
+            "principal": "p",
+            "action": "a",
+            "resource_id": resource_resp.json()["id"],
+        },
+    )
+    client.get("/evidence/export", headers=headers)
+
+    usage = client.get(f"/orgs/{org_id}/usage", headers=headers)
+    assert usage.status_code == 200
+    assert usage.json()["total_evaluations"] >= 1

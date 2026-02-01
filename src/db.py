@@ -203,6 +203,7 @@ def init_db() -> None:
                 attributes_json TEXT NOT NULL,
                 source_system TEXT NOT NULL,
                 external_id TEXT,
+                ai_metadata_json TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS evaluations (
@@ -224,7 +225,16 @@ def init_db() -> None:
                 format TEXT NOT NULL,
                 content_hash TEXT NOT NULL,
                 signature TEXT NOT NULL,
+                content_bytes INTEGER NOT NULL,
                 record_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS evidence_verifications (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                valid INTEGER NOT NULL,
+                checked_records INTEGER NOT NULL,
+                last_hash TEXT,
                 created_at TEXT NOT NULL
             );
             """
@@ -234,10 +244,12 @@ def init_db() -> None:
         _add_column_if_missing(conn, "evaluations", "org_id", "TEXT")
         _add_column_if_missing(conn, "resources", "source_system", "TEXT")
         _add_column_if_missing(conn, "resources", "external_id", "TEXT")
+        _add_column_if_missing(conn, "resources", "ai_metadata_json", "TEXT")
         _add_column_if_missing(conn, "api_keys", "scopes_json", "TEXT")
         _add_column_if_missing(conn, "api_keys", "revoked_at", "TEXT")
         _add_column_if_missing(conn, "evaluations", "prev_hash", "TEXT")
         _add_column_if_missing(conn, "evaluations", "record_hash", "TEXT")
+        _add_column_if_missing(conn, "evidence_exports", "content_bytes", "INTEGER")
 
 
 def now_iso() -> str:
