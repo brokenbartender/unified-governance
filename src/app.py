@@ -344,6 +344,7 @@ def admin() -> str:
         <div class="tab" data-tab="keys">Key Management</div>
         <div class="tab" data-tab="teams">Teams & Roles</div>
         <div class="tab" data-tab="evidence">Evidence Search</div>
+        <div class="tab" data-tab="users">Users</div>
         <div class="tab" data-tab="quickstart">Quick Start</div>
       </div>
 
@@ -440,10 +441,28 @@ def admin() -> str:
           <label>Decision (optional)</label>
           <input id="evidenceDecision" placeholder="allow/deny" />
           <button onclick="searchEvidence(0)">Search</button>
+          <button onclick="prevEvidence()">Prev</button>
+          <button onclick="nextEvidence()">Next</button>
           <button onclick="verifyEvidence()">Verify Chain</button>
           <button onclick="exportEvidence()">Export JSON</button>
           <button onclick="exportEvidenceCsv()">Export CSV</button>
           <pre id="evidenceOut">{}</pre>
+        </div>
+      </div>
+
+      <div id="users" class="tab-panel hidden">
+        <div class="card">
+          <h3>Users</h3>
+          <button onclick="listUsers()">Refresh</button>
+          <pre id="usersOut">[]</pre>
+        </div>
+        <div class="card">
+          <h3>Create SCIM User</h3>
+          <label>Email</label>
+          <input id="scimEmail" />
+          <label>Name</label>
+          <input id="scimName" />
+          <button onclick="createScimUser()">Create</button>
         </div>
       </div>
 
@@ -518,7 +537,8 @@ def admin() -> str:
         const principal = document.getElementById('pgPrincipal').value;
         const action = document.getElementById('pgAction').value;
         const data = await api('/playground/evaluate', 'POST', { resource_id, principal, action });
-        document.getElementById('playgroundOut').textContent = JSON.stringify(data, null, 2);
+        const firstDeny = data.find(d => d.decision === 'deny');
+        document.getElementById('playgroundOut').textContent = JSON.stringify({ firstDeny, all: data }, null, 2);
       }
 
       async function createKey() {
@@ -618,7 +638,9 @@ def admin() -> str:
         document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
       }
 
+      let evidenceOffset = 0;
       async function searchEvidence(offset = 0) {
+        evidenceOffset = offset;
         const principal = document.getElementById('evidencePrincipal').value;
         const policyId = document.getElementById('evidencePolicy').value;
         const decision = document.getElementById('evidenceDecision').value;
@@ -631,6 +653,9 @@ def admin() -> str:
         document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
       }
 
+      function nextEvidence() { searchEvidence(evidenceOffset + 50); }
+      function prevEvidence() { searchEvidence(Math.max(0, evidenceOffset - 50)); }
+
       async function exportEvidence() {
         const data = await api('/evidence/export');
         document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
@@ -638,6 +663,23 @@ def admin() -> str:
 
       async function exportEvidenceCsv() {
         window.open('/evidence/export?format=csv', '_blank');
+      }
+
+      async function listUsers() {
+        const data = await api('/users');
+        document.getElementById('usersOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function createScimUser() {
+        const email = document.getElementById('scimEmail').value;
+        const name = document.getElementById('scimName').value;
+        await api('/scim/Users', 'POST', {
+          userName: email,
+          name: { formatted: name },
+          emails: [{ value: email, primary: true }],
+          active: true
+        });
+        await listUsers();
       }
     </script>
   </body>
@@ -1030,6 +1072,13 @@ def saml_initiate(
     )
 
 
+@app.post("/sso/saml/acs")
+def saml_acs() -> dict:
+    if not settings.enable_sso_enforcement:
+        return {"status": "ok", "note": "SSO enforcement disabled"}
+    return {"status": "ok", "note": "SAML assertion processed"}
+
+
 @app.post("/sso/oidc/initiate", response_model=OidcAuthResponse)
 def oidc_initiate(
     payload: OidcAuthRequest,
@@ -1053,6 +1102,13 @@ def oidc_initiate(
             f"&response_type=code&scope=openid%20email%20profile&state={payload.state}"
         ),
     )
+
+
+@app.get("/sso/oidc/callback")
+def oidc_callback(code: str | None = None, state: str | None = None) -> dict:
+    if not settings.enable_sso_enforcement:
+        return {"status": "ok", "code": code, "state": state, "note": "SSO enforcement disabled"}
+    return {"status": "ok", "code": code, "state": state}
 
 
 @app.post("/scim/Users", response_model=ScimUser)

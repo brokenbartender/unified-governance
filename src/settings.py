@@ -18,6 +18,7 @@ class Settings:
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     enable_webhook_delivery: bool = os.getenv("ENABLE_WEBHOOK_DELIVERY", "false").lower() == "true"
     rate_limit_per_min: int = int(os.getenv("RATE_LIMIT_PER_MIN", "120"))
+    enable_sso_enforcement: bool = os.getenv("ENABLE_SSO_ENFORCEMENT", "false").lower() == "true"
 
 
 settings = Settings()

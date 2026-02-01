@@ -1,0 +1,5 @@
+﻿# CLI Bootstrap
+
+```bash
+python scripts/bootstrap.py --base-url http://127.0.0.1:8000 --api-key YOUR_API_KEY
+```
