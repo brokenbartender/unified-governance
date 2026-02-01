@@ -198,6 +198,21 @@ class PolicyRevisionCreate(BaseModel):
     rego_text: Optional[str] = None
 
 
+class PolicyApproval(BaseModel):
+    id: str
+    policy_id: str
+    org_id: str
+    approved_by: str
+    comment: Optional[str] = None
+    signature: str
+    created_at: str
+
+
+class PolicyApprovalCreate(BaseModel):
+    approved_by: str
+    comment: Optional[str] = None
+
+
 class AiMetadata(BaseModel):
     model_type: Optional[str] = None
     model_provider: Optional[str] = None
@@ -443,6 +458,12 @@ class BillingUsage(BaseModel):
 class LicenseStatus(BaseModel):
     status: str
     detail: str | None = None
+
+
+class ComplianceReport(BaseModel):
+    org_id: str
+    generated_at: str
+    controls: Dict[str, Any]
 
 
 class ScimUser(BaseModel):

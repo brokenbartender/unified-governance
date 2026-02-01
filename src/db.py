@@ -219,6 +219,15 @@ def init_db() -> None:
                 rego_text TEXT,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS policy_approvals (
+                id TEXT PRIMARY KEY,
+                policy_id TEXT NOT NULL,
+                org_id TEXT NOT NULL,
+                approved_by TEXT NOT NULL,
+                comment TEXT,
+                signature TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS resources (
                 id TEXT PRIMARY KEY,
                 org_id TEXT,

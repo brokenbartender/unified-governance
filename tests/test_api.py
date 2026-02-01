@@ -412,6 +412,9 @@ def test_license_and_billing():
     billing = client.get(f"/billing/usage?org_id={org_id}", headers=headers)
     assert billing.status_code == 200
 
+    compliance = client.get(f"/reports/compliance?org_id={org_id}", headers=headers)
+    assert compliance.status_code == 200
+
 
 def test_break_glass_key():
     org_id, api_key, _ = _create_org_and_key(scopes=["orgs:write"])
@@ -515,3 +518,6 @@ def test_enforce_and_attestations():
         json={"date": "2026-02-01"},
     )
     assert attestation.status_code == 200
+
+    pack = client.get("/evidence/pack", headers=headers)
+    assert pack.status_code == 200

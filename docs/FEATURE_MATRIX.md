@@ -32,6 +32,7 @@
 | Security | Secret provider config | Complete |
 | Deploy | Air-gapped install | Complete |
 | Commercial | Billing usage model | Complete |
+| Compliance | Report generator | Complete |
 | DevEx | SDKs (Python/TypeScript) | Complete |
 | DevEx | OpenAPI + Postman | Complete |
 | Deploy | Docker + Postgres | Complete |

@@ -87,6 +87,9 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /billing/usage`
 - `GET /license/status`
 - `GET /secrets/status`
+- `GET /reports/compliance`
+- `GET /evidence/pack`
+- `GET /coverage`
 
 ## SDKs
 - Python: `sdk/python`
@@ -132,6 +135,7 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `docs/LICENSE.md`
 - `docs/SUPPORT_SLA.md`
 - `docs/REFERENCE_ARCHITECTURES.md`
+- `docs/COMPLIANCE_REPORTING.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`

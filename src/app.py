@@ -24,6 +24,7 @@ from .connectors import salesforce  # noqa: F401
 from .connectors import slack  # noqa: F401
 from .connectors import jira  # noqa: F401
 from .db import DB_KIND, get_conn, init_db, now_iso, parse_json_field, row_to_dict, dump_json_field
+from .audit_pack import build_audit_pack
 from .llm import generate_policy_from_text
 from .policy_engine import evaluate_policy
 from .schemas import (
@@ -89,6 +90,9 @@ from .schemas import (
     AbuseEvent,
     BillingUsage,
     LicenseStatus,
+    PolicyApproval,
+    PolicyApprovalCreate,
+    ComplianceReport,
 )
 from .settings import settings
 
@@ -146,6 +150,15 @@ def _append_to_vault(content: str, export_id: str) -> None:
 
 def _policy_approval_signature(policy_id: str, version: int, rule_json: str, approved_by: str | None) -> str:
     payload = f"{policy_id}:{version}:{approved_by or ''}:{rule_json}"
+    return hmac.new(
+        settings.policy_approval_secret.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _approval_signature(policy_id: str, approved_by: str, comment: str | None) -> str:
+    payload = f"{policy_id}:{approved_by}:{comment or ''}"
     return hmac.new(
         settings.policy_approval_secret.encode("utf-8"),
         payload.encode("utf-8"),
@@ -1852,6 +1865,47 @@ def list_policy_revisions(
     return revisions
 
 
+@app.post("/policies/{policy_id}/approve", response_model=PolicyApproval)
+def approve_policy(
+    policy_id: str,
+    payload: PolicyApprovalCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> PolicyApproval:
+    org_id = key_row["org_id"]
+    approval_id = str(uuid.uuid4())
+    created_at = now_iso()
+    signature = _approval_signature(policy_id, payload.approved_by, payload.comment)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO policy_approvals (id, policy_id, org_id, approved_by, comment, signature, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (approval_id, policy_id, org_id, payload.approved_by, payload.comment, signature, created_at),
+        )
+    return PolicyApproval(
+        id=approval_id,
+        policy_id=policy_id,
+        org_id=org_id,
+        approved_by=payload.approved_by,
+        comment=payload.comment,
+        signature=signature,
+        created_at=created_at,
+    )
+
+
+@app.get("/policies/{policy_id}/approvals", response_model=list[PolicyApproval])
+def list_policy_approvals(
+    policy_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read"])),
+) -> list[PolicyApproval]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM policy_approvals WHERE policy_id = ? AND org_id = ? ORDER BY created_at DESC",
+            (policy_id, org_id),
+        ).fetchall()
+    return [PolicyApproval(**row_to_dict(row)) for row in rows]
+
+
 @app.post("/policies/{policy_id}/rollback", response_model=Policy)
 def rollback_policy(
     policy_id: str,
@@ -2936,6 +2990,26 @@ def list_abuse_events(
     return [AbuseEvent(**row_to_dict(row)) for row in rows]
 
 
+@app.get("/coverage")
+def coverage_report(
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        policy_count = conn.execute(
+            "SELECT COUNT(*) as total FROM policies WHERE org_id = ?",
+            (org_id,),
+        ).fetchone()
+        resource_count = conn.execute(
+            "SELECT COUNT(*) as total FROM resources WHERE org_id = ?",
+            (org_id,),
+        ).fetchone()
+    policies = policy_count["total"] if isinstance(policy_count, dict) else policy_count[0]
+    resources = resource_count["total"] if isinstance(resource_count, dict) else resource_count[0]
+    coverage = 0 if resources == 0 else round((policies / resources) * 100, 2)
+    return {"policies": policies, "resources": resources, "coverage_percent": coverage}
+
+
 @app.post("/webhooks", response_model=Webhook)
 def create_webhook(
     payload: WebhookCreate,
@@ -3308,6 +3382,44 @@ def billing_usage(
         active_api_keys=summary.active_api_keys,
         estimated_cost=estimated_cost,
     )
+
+
+@app.get("/reports/compliance", response_model=ComplianceReport)
+def compliance_report(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> ComplianceReport:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    controls = {
+        "SOC2-CC7.2": "Evidence chain + decision logs + attestations",
+        "SOC2-CC6.1": "Policy engine + approvals + RBAC",
+        "ISO-27001-A.12.4": "Logging + audit export",
+    }
+    return ComplianceReport(org_id=org_id, generated_at=now_iso(), controls=controls)
+
+
+@app.get("/evidence/pack")
+def evidence_pack(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+):
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        exports = conn.execute(
+            "SELECT * FROM evidence_exports WHERE org_id = ? ORDER BY created_at DESC LIMIT 5",
+            (org_id,),
+        ).fetchall()
+        attestations = conn.execute(
+            "SELECT * FROM evidence_attestations WHERE org_id = ? ORDER BY created_at DESC LIMIT 5",
+            (org_id,),
+        ).fetchall()
+    bundle = {
+        "org_id": org_id,
+        "exports": [row_to_dict(row) for row in exports],
+        "attestations": [row_to_dict(row) for row in attestations],
+    }
+    payload = build_audit_pack(bundle)
+    return Response(content=payload, media_type="application/zip")
 
 
 @app.get("/orgs/{org_id}/export", response_model=OrgExport)

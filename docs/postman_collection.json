@@ -1482,6 +1482,66 @@
       "response": []
     },
     {
+      "name": "Approve Policy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/approve",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "approve"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Policy Approvals",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/approvals",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "approvals"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Rollback Policy",
       "request": {
         "method": "POST",
@@ -2525,6 +2585,32 @@
       "response": []
     },
     {
+      "name": "Coverage Report",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/coverage",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "coverage"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Create Webhook",
       "request": {
         "method": "POST",
@@ -2884,6 +2970,66 @@
               "key": "period",
               "value": ""
             }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Compliance Report",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/reports/compliance",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "reports",
+            "compliance"
+          ],
+          "query": [
+            {
+              "key": "org_id",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Evidence Pack",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evidence/pack",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evidence",
+            "pack"
           ]
         }
       },
