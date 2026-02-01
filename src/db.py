@@ -148,6 +148,28 @@ def init_db() -> None:
                 role TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS teams (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS roles (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                permissions_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS team_memberships (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                team_id TEXT NOT NULL,
+                role_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS api_keys (
                 id TEXT PRIMARY KEY,
                 org_id TEXT NOT NULL,

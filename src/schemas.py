@@ -36,6 +36,43 @@ class Membership(BaseModel):
     created_at: str
 
 
+class TeamCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class Team(TeamCreate):
+    id: str
+    org_id: str
+    created_at: str
+
+
+class RoleCreate(BaseModel):
+    name: str
+    permissions: List[str] = Field(default_factory=list)
+
+
+class Role(RoleCreate):
+    id: str
+    org_id: str
+    created_at: str
+
+
+class TeamMembershipCreate(BaseModel):
+    user_id: str
+    team_id: str
+    role_id: str
+
+
+class TeamMembership(BaseModel):
+    id: str
+    org_id: str
+    user_id: str
+    team_id: str
+    role_id: str
+    created_at: str
+
+
 class ApiKeyCreate(BaseModel):
     name: str
     scopes: List[str] = Field(
@@ -55,6 +92,8 @@ class ApiKeyCreate(BaseModel):
             "scim:write",
             "sso:read",
             "sso:write",
+            "rbac:read",
+            "rbac:write",
         ]
     )
 

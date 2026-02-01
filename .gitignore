@@ -6,3 +6,4 @@ data/
 __pycache__/
 .pytest_cache/
 tmp/
+output/buyer_ready_bundle.zip

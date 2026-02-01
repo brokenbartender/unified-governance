@@ -30,6 +30,9 @@ Open http://127.0.0.1:8000/docs for the API UI.
 - `POST /orgs`
 - `POST /users`
 - `POST /orgs/{org_id}/memberships`
+- `POST /orgs/{org_id}/teams`
+- `POST /orgs/{org_id}/roles`
+- `POST /orgs/{org_id}/team-memberships`
 - `POST /orgs/{org_id}/keys`
 - `POST /orgs/{org_id}/keys/{key_id}/rotate`
 - `POST /orgs/{org_id}/keys/{key_id}/revoke`
@@ -48,6 +51,7 @@ Open http://127.0.0.1:8000/docs for the API UI.
 - `docs/CONTROL_MATRIX.md`
 - `docs/COMPLIANCE_ALIGNMENT.md`
 - `docs/SECURITY_MODEL.md`
+- `docs/RBAC.md`
 
 ## Files
 - `src/app.py` FastAPI entrypoint

@@ -233,3 +233,50 @@ def test_sso_initiate_flows():
     )
     assert oidc_init.status_code == 200
     assert "authorize" in oidc_init.json()["authorization_url"]
+
+
+def test_rbac_team_role_membership_flow():
+    org_id, api_key, _ = _create_org_and_key(scopes=["rbac:read", "rbac:write"])
+    headers = {"X-API-Key": api_key}
+
+    user_resp = client.post(
+        "/users",
+        json={"email": "rbac@example.com", "name": "RBAC User"},
+    )
+    assert user_resp.status_code == 200
+    user_id = user_resp.json()["id"]
+
+    team_resp = client.post(
+        f"/orgs/{org_id}/teams",
+        headers=headers,
+        json={"name": "Security", "description": "Security team"},
+    )
+    assert team_resp.status_code == 200
+    team_id = team_resp.json()["id"]
+
+    role_resp = client.post(
+        f"/orgs/{org_id}/roles",
+        headers=headers,
+        json={"name": "Admin", "permissions": ["policies:write", "evidence:read"]},
+    )
+    assert role_resp.status_code == 200
+    role_id = role_resp.json()["id"]
+
+    membership_resp = client.post(
+        f"/orgs/{org_id}/team-memberships",
+        headers=headers,
+        json={"user_id": user_id, "team_id": team_id, "role_id": role_id},
+    )
+    assert membership_resp.status_code == 200
+
+    list_roles = client.get(f"/orgs/{org_id}/roles", headers=headers)
+    assert list_roles.status_code == 200
+    assert len(list_roles.json()) >= 1
+
+    list_teams = client.get(f"/orgs/{org_id}/teams", headers=headers)
+    assert list_teams.status_code == 200
+    assert len(list_teams.json()) >= 1
+
+    list_memberships = client.get(f"/orgs/{org_id}/team-memberships", headers=headers)
+    assert list_memberships.status_code == 200
+    assert len(list_memberships.json()) >= 1

@@ -5,6 +5,10 @@
 - Scoped permissions for policies/resources/evidence/connectors
 - Key rotation and revocation endpoints
 
+## RBAC
+- Teams and roles with permission sets
+- Team memberships assign roles to users
+
 ## Evidence Integrity
 - Per-record hash chain for evaluations
 - HMAC signature for exports

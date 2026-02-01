@@ -36,6 +36,8 @@ from .schemas import (
     Resource,
     ResourceCreate,
     RetentionStatus,
+    Role,
+    RoleCreate,
     SamlAuthRequest,
     SamlAuthResponse,
     ScimListResponse,
@@ -43,6 +45,10 @@ from .schemas import (
     ScimUserCreate,
     SsoConfig,
     SsoConfigCreate,
+    Team,
+    TeamCreate,
+    TeamMembership,
+    TeamMembershipCreate,
     User,
     UserCreate,
 )
@@ -219,6 +225,135 @@ def create_membership(
         role=payload.role,
         created_at=created_at,
     )
+
+
+@app.post("/orgs/{org_id}/teams", response_model=Team)
+def create_team(
+    org_id: str,
+    payload: TeamCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["rbac:write"])),
+) -> Team:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    team_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO teams (id, org_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)",
+            (team_id, org_id, payload.name, payload.description, created_at),
+        )
+    return Team(id=team_id, org_id=org_id, created_at=created_at, **payload.model_dump())
+
+
+@app.get("/orgs/{org_id}/teams", response_model=list[Team])
+def list_teams(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["rbac:read"])),
+) -> list[Team]:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM teams WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    return [Team(**row_to_dict(row)) for row in rows]
+
+
+@app.post("/orgs/{org_id}/roles", response_model=Role)
+def create_role(
+    org_id: str,
+    payload: RoleCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["rbac:write"])),
+) -> Role:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    role_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO roles (id, org_id, name, permissions_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (role_id, org_id, payload.name, dump_json_field(payload.permissions), created_at),
+        )
+    return Role(id=role_id, org_id=org_id, created_at=created_at, **payload.model_dump())
+
+
+@app.get("/orgs/{org_id}/roles", response_model=list[Role])
+def list_roles(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["rbac:read"])),
+) -> list[Role]:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM roles WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    roles = []
+    for row in rows:
+        data = row_to_dict(row)
+        roles.append(
+            Role(
+                id=data["id"],
+                org_id=data["org_id"],
+                name=data["name"],
+                permissions=parse_json_field(data["permissions_json"]) or [],
+                created_at=data["created_at"],
+            )
+        )
+    return roles
+
+
+@app.post("/orgs/{org_id}/team-memberships", response_model=TeamMembership)
+def create_team_membership(
+    org_id: str,
+    payload: TeamMembershipCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["rbac:write"])),
+) -> TeamMembership:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    membership_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        user_row = conn.execute("SELECT id FROM users WHERE id = ?", (payload.user_id,)).fetchone()
+        team_row = conn.execute(
+            "SELECT id FROM teams WHERE id = ? AND org_id = ?",
+            (payload.team_id, org_id),
+        ).fetchone()
+        role_row = conn.execute(
+            "SELECT id FROM roles WHERE id = ? AND org_id = ?",
+            (payload.role_id, org_id),
+        ).fetchone()
+        if not user_row or not team_row or not role_row:
+            raise HTTPException(status_code=404, detail="User, team, or role not found")
+        conn.execute(
+            "INSERT INTO team_memberships (id, org_id, user_id, team_id, role_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (membership_id, org_id, payload.user_id, payload.team_id, payload.role_id, created_at),
+        )
+    return TeamMembership(
+        id=membership_id,
+        org_id=org_id,
+        user_id=payload.user_id,
+        team_id=payload.team_id,
+        role_id=payload.role_id,
+        created_at=created_at,
+    )
+
+
+@app.get("/orgs/{org_id}/team-memberships", response_model=list[TeamMembership])
+def list_team_memberships(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["rbac:read"])),
+) -> list[TeamMembership]:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM team_memberships WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    return [TeamMembership(**row_to_dict(row)) for row in rows]
 
 
 @app.post("/orgs/{org_id}/keys", response_model=ApiKeyIssued)
