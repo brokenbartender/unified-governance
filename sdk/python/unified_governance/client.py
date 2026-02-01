@@ -57,6 +57,17 @@ class Client:
             },
         )
 
+    def enforce(self, policy_id: str, principal: str, action: str, resource_id: str, risk_threshold: int | None = None):
+        payload = {
+            "policy_id": policy_id,
+            "principal": principal,
+            "action": action,
+            "resource_id": resource_id,
+        }
+        if risk_threshold is not None:
+            payload["risk_threshold"] = risk_threshold
+        return self._request("POST", "/enforce", payload)
+
     def export_evidence(self):
         return self._request("GET", "/evidence/export")
 

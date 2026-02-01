@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import io
 import json
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -35,13 +36,15 @@ from .schemas import (
     OidcAuthResponse,
     Org,
     OrgCreate,
+    OrgExport,
     OpaPolicyExport,
     Policy,
     PolicyCreate,
+    PolicyRevision,
+    PolicyRevisionCreate,
     PolicyRule,
     PlaygroundDecision,
     PlaygroundRequest,
-    OrgExport,
     Resource,
     ResourceCreate,
     RetentionStatus,
@@ -67,6 +70,10 @@ from .schemas import (
     WebhookCreate,
     WebhookDelivery,
     DecisionLogExport,
+    EvidenceAttestation,
+    EvidenceAttestationCreate,
+    EnforcementDecision,
+    EnforcementRequest,
 )
 from .settings import settings
 
@@ -109,6 +116,69 @@ def _hash_record(payload: dict, prev_hash: str | None) -> str:
 def _hash_content(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
+
+def _append_to_vault(content: str, export_id: str) -> None:
+    path = settings.evidence_vault_path
+    if not path:
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"export_id": export_id, "hash": _hash_content(content)}) + "\n")
+
+def _policy_approval_signature(policy_id: str, version: int, rule_json: str, approved_by: str | None) -> str:
+    payload = f"{policy_id}:{version}:{approved_by or ''}:{rule_json}"
+    return hmac.new(
+        settings.policy_approval_secret.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _merge_rules(parent: PolicyRule, child: PolicyRule) -> PolicyRule:
+    merged = PolicyRule(
+        allowed_principals=sorted(set(parent.allowed_principals + child.allowed_principals)),
+        allowed_actions=sorted(set(parent.allowed_actions + child.allowed_actions)),
+        resource_types=sorted(set(parent.resource_types + child.resource_types)),
+        required_attributes={**parent.required_attributes, **child.required_attributes},
+        deny_principals=sorted(set(parent.deny_principals + child.deny_principals)),
+        deny_actions=sorted(set(parent.deny_actions + child.deny_actions)),
+        deny_resource_types=sorted(set(parent.deny_resource_types + child.deny_resource_types)),
+        exception_principals=sorted(set(parent.exception_principals + child.exception_principals)),
+        exception_actions=sorted(set(parent.exception_actions + child.exception_actions)),
+        exception_resource_types=sorted(set(parent.exception_resource_types + child.exception_resource_types)),
+    )
+    return merged
+
+
+def _compute_risk_score(resource: Resource, action: str) -> int:
+    sensitivity = 1
+    if resource.ai_metadata and isinstance(resource.ai_metadata, dict):
+        sensitivity = int(resource.ai_metadata.get("sensitivity_level") or 1)
+    action_weight = 0
+    if action in {"write", "delete", "export"}:
+        action_weight = 2
+    return sensitivity + action_weight
+
+
+def _rego_from_rule(rule: PolicyRule) -> str:
+    lines = [
+        "package unified.governance",
+        "",
+        "default allow = false",
+        "",
+        "allow {",
+        "  # principals",
+        f"  input.principal in {json.dumps(rule.allowed_principals)}",
+        "  # actions",
+        f"  input.action in {json.dumps(rule.allowed_actions)}",
+        "  # resource types",
+        f"  input.resource.type in {json.dumps(rule.resource_types)}",
+        "  # required attributes",
+    ]
+    for key, value in rule.required_attributes.items():
+        lines.append(f"  input.resource.attributes.{key} == {json.dumps(value)}")
+    lines.append("}")
+    return "\n".join(lines)
 
 def _deliver_webhook(url: str, secret: str | None, payload: dict) -> tuple[int | None, str]:
     if not settings.enable_webhook_delivery:
@@ -171,6 +241,54 @@ def _require_org_and_scopes(scopes: list[str]):
         return key_row
 
     return _dependency
+
+
+def _policy_model_from_row(data: dict) -> Policy:
+    return Policy(
+        id=data["id"],
+        org_id=data["org_id"],
+        name=data["name"],
+        description=data["description"],
+        rule=PolicyRule(**parse_json_field(data["rule_json"])),
+        created_at=data["created_at"],
+        inherits_from=data.get("inherits_from"),
+        version=int(data.get("version") or 1),
+    )
+
+
+def _evaluation_from_row(data: dict) -> Evaluation:
+    return Evaluation(
+        id=data["id"],
+        org_id=data["org_id"],
+        policy_id=data["policy_id"],
+        principal=data["principal"],
+        action=data["action"],
+        resource_id=data["resource_id"],
+        decision=data["decision"],
+        rationale=data.get("rationale"),
+        rule_snapshot=None,
+        created_at=data["created_at"],
+        prev_hash=data.get("prev_hash"),
+        record_hash=data.get("record_hash"),
+        explain=parse_json_field(data.get("explain_json", "")) or None,
+    )
+
+
+def _resolve_policy_rule(org_id: str, policy_row: dict) -> PolicyRule:
+    policy_data = row_to_dict(policy_row)
+    base_rule = PolicyRule(**parse_json_field(policy_data["rule_json"]))
+    parent_id = policy_data.get("inherits_from")
+    if not parent_id:
+        return base_rule
+    with get_conn() as conn:
+        parent_row = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (parent_id, org_id),
+        ).fetchone()
+    if not parent_row:
+        return base_rule
+    parent_rule = PolicyRule(**parse_json_field(row_to_dict(parent_row)["rule_json"]))
+    return _merge_rules(parent_rule, base_rule)
 
 
 @app.get("/health")
@@ -1285,19 +1403,41 @@ def create_policy(
     org_id = key_row["org_id"]
     policy_id = str(uuid.uuid4())
     created_at = now_iso()
+    version = 1
+    rule_json = dump_json_field(payload.rule.model_dump())
+    approval_sig = _policy_approval_signature(policy_id, version, rule_json, approved_by=None)
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO policies (id, org_id, name, description, rule_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO policies (id, org_id, name, description, rule_json, created_at, inherits_from, version)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 policy_id,
                 org_id,
                 payload.name,
                 payload.description,
-                dump_json_field(payload.rule.model_dump()),
+                rule_json,
+                created_at,
+                payload.inherits_from,
+                version,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO policy_revisions (id, policy_id, org_id, version, description, rule_json, approved_by, approval_signature, rego_text, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                policy_id,
+                org_id,
+                version,
+                payload.description,
+                rule_json,
+                None,
+                approval_sig,
+                _rego_from_rule(payload.rule),
                 created_at,
             ),
         )
-    return Policy(id=policy_id, org_id=org_id, created_at=created_at, **payload.model_dump())
+    return Policy(id=policy_id, org_id=org_id, created_at=created_at, version=version, **payload.model_dump())
 
 
 @app.post("/v1/policies", response_model=Policy)
@@ -1316,20 +1456,7 @@ def list_policies(key_row: dict = Depends(_require_org_and_scopes(["policies:rea
             "SELECT * FROM policies WHERE org_id = ? ORDER BY created_at DESC",
             (org_id,),
         ).fetchall()
-    policies = []
-    for row in rows:
-        data = row_to_dict(row)
-        policies.append(
-            Policy(
-                id=data["id"],
-                org_id=data["org_id"],
-                name=data["name"],
-                description=data["description"],
-                rule=PolicyRule(**parse_json_field(data["rule_json"])),
-                created_at=data["created_at"],
-            )
-        )
-    return policies
+    return [_policy_model_from_row(row_to_dict(row)) for row in rows]
 
 
 @app.get("/policies/{policy_id}", response_model=Policy)
@@ -1345,15 +1472,257 @@ def get_policy(
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Policy not found")
-    data = row_to_dict(row)
-    return Policy(
-        id=data["id"],
-        org_id=data["org_id"],
-        name=data["name"],
-        description=data["description"],
-        rule=PolicyRule(**parse_json_field(data["rule_json"])),
-        created_at=data["created_at"],
+    return _policy_model_from_row(row_to_dict(row))
+
+
+@app.put("/policies/{policy_id}", response_model=Policy)
+def update_policy(
+    policy_id: str,
+    payload: PolicyRevisionCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> Policy:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        current = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (policy_id, org_id),
+        ).fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="Policy not found")
+        current_version = int(row_to_dict(current).get("version") or 1)
+        next_version = current_version + 1
+        rule_json = dump_json_field(payload.rule.model_dump())
+        approval_sig = _policy_approval_signature(policy_id, next_version, rule_json, payload.approved_by)
+        conn.execute(
+            "UPDATE policies SET description = ?, rule_json = ?, version = ? WHERE id = ?",
+            (payload.description, rule_json, next_version, policy_id),
+        )
+        conn.execute(
+            "INSERT INTO policy_revisions (id, policy_id, org_id, version, description, rule_json, approved_by, approval_signature, rego_text, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                policy_id,
+                org_id,
+                next_version,
+                payload.description,
+                rule_json,
+                payload.approved_by,
+                approval_sig,
+                payload.rego_text or _rego_from_rule(payload.rule),
+                now_iso(),
+            ),
+        )
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM policies WHERE id = ?", (policy_id,)).fetchone()
+    return _policy_model_from_row(row_to_dict(row))
+
+
+@app.get("/policies/{policy_id}/revisions", response_model=list[PolicyRevision])
+def list_policy_revisions(
+    policy_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read"])),
+) -> list[PolicyRevision]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM policy_revisions WHERE policy_id = ? AND org_id = ? ORDER BY version DESC",
+            (policy_id, org_id),
+        ).fetchall()
+    revisions = []
+    for row in rows:
+        data = row_to_dict(row)
+        revisions.append(
+            PolicyRevision(
+                id=data["id"],
+                policy_id=data["policy_id"],
+                org_id=data["org_id"],
+                version=int(data["version"]),
+                description=data.get("description"),
+                rule=PolicyRule(**parse_json_field(data["rule_json"])),
+                approved_by=data.get("approved_by"),
+                approval_signature=data.get("approval_signature"),
+                rego_text=data.get("rego_text"),
+                created_at=data["created_at"],
+            )
+        )
+    return revisions
+
+
+@app.post("/policies/{policy_id}/rollback", response_model=Policy)
+def rollback_policy(
+    policy_id: str,
+    version: int,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> Policy:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        revision = conn.execute(
+            "SELECT * FROM policy_revisions WHERE policy_id = ? AND org_id = ? AND version = ?",
+            (policy_id, org_id, version),
+        ).fetchone()
+        if not revision:
+            raise HTTPException(status_code=404, detail="Revision not found")
+        current = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (policy_id, org_id),
+        ).fetchone()
+        current_version = int(row_to_dict(current).get("version") or 1)
+        next_version = current_version + 1
+        rule_json = row_to_dict(revision)["rule_json"]
+        approval_sig = _policy_approval_signature(policy_id, next_version, rule_json, approved_by="rollback")
+        conn.execute(
+            "UPDATE policies SET rule_json = ?, version = ? WHERE id = ?",
+            (rule_json, next_version, policy_id),
+        )
+        conn.execute(
+            "INSERT INTO policy_revisions (id, policy_id, org_id, version, description, rule_json, approved_by, approval_signature, rego_text, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                policy_id,
+                org_id,
+                next_version,
+                f"Rollback to v{version}",
+                rule_json,
+                "rollback",
+                approval_sig,
+                row_to_dict(revision).get("rego_text"),
+                now_iso(),
+            ),
+        )
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM policies WHERE id = ?", (policy_id,)).fetchone()
+    return _policy_model_from_row(row_to_dict(row))
+
+
+@app.post("/policies/{policy_id}/simulate", response_model=PlaygroundDecision)
+def simulate_policy(
+    policy_id: str,
+    payload: PlaygroundRequest,
+    version: int | None = None,
+    as_of: str | None = None,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read", "resources:read"])),
+) -> PlaygroundDecision:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        if version is not None:
+            rev = conn.execute(
+                "SELECT * FROM policy_revisions WHERE policy_id = ? AND org_id = ? AND version = ?",
+                (policy_id, org_id, version),
+            ).fetchone()
+        elif as_of:
+            rev = conn.execute(
+                "SELECT * FROM policy_revisions WHERE policy_id = ? AND org_id = ? AND created_at <= ?"
+                " ORDER BY created_at DESC LIMIT 1",
+                (policy_id, org_id, as_of),
+            ).fetchone()
+        else:
+            rev = conn.execute(
+                "SELECT * FROM policy_revisions WHERE policy_id = ? AND org_id = ? ORDER BY version DESC LIMIT 1",
+                (policy_id, org_id),
+            ).fetchone()
+        resource_row = conn.execute(
+            "SELECT * FROM resources WHERE id = ? AND org_id = ?",
+            (payload.resource_id, org_id),
+        ).fetchone()
+    if not rev:
+        raise HTTPException(status_code=404, detail="Policy revision not found")
+    if not resource_row:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    rule = PolicyRule(**parse_json_field(row_to_dict(rev)["rule_json"]))
+    resource_data = row_to_dict(resource_row)
+    resource = Resource(
+        id=resource_data["id"],
+        org_id=resource_data["org_id"],
+        name=resource_data["name"],
+        type=resource_data["type"],
+        attributes=parse_json_field(resource_data["attributes_json"]),
+        source_system=resource_data.get("source_system") or "manual",
+        external_id=resource_data.get("external_id"),
+        ai_metadata=parse_json_field(resource_data.get("ai_metadata_json", "")) or None,
+        created_at=resource_data["created_at"],
     )
+    decision, rationale, explain = evaluate_policy(rule, payload.principal, payload.action, resource)
+    return PlaygroundDecision(
+        policy_id=policy_id,
+        decision=decision,
+        rationale=rationale,
+        matched_attributes={**rule.required_attributes, **(explain or {})},
+    )
+
+
+@app.get("/policies/{policy_id}/rego", response_model=OpaPolicyExport)
+def export_policy_rego(
+    policy_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read"])),
+) -> OpaPolicyExport:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (policy_id, org_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    data = row_to_dict(row)
+    rule = parse_json_field(data["rule_json"])
+    opa_input = {
+        "input": {
+            "principal": "example-principal",
+            "action": "read",
+            "resource": {
+                "type": "example-type",
+                "attributes": {"sensitivity": "high"},
+            },
+        }
+    }
+    rego = _rego_from_rule(PolicyRule(**rule))
+    return OpaPolicyExport(
+        policy_id=policy_id,
+        org_id=org_id,
+        rule=rule,
+        opa_input=opa_input,
+        rego=rego,
+    )
+
+
+@app.post("/policies/import/rego", response_model=Policy)
+def import_policy_rego(
+    payload: dict,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> Policy:
+    org_id = key_row["org_id"]
+    name = payload.get("name")
+    rego_text = payload.get("rego")
+    if not name or not rego_text:
+        raise HTTPException(status_code=400, detail="Missing name or rego")
+    rule_json = None
+    for line in rego_text.splitlines():
+        if line.strip().startswith("#policy-json:"):
+            rule_json = line.split(":", 1)[1].strip()
+            break
+    if not rule_json:
+        raise HTTPException(status_code=400, detail="Rego missing #policy-json metadata")
+    try:
+        rule_dict = json.loads(rule_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid policy-json metadata") from exc
+    policy = create_policy(
+        PolicyCreate(
+            name=name,
+            description=payload.get("description"),
+            rule=PolicyRule(**rule_dict),
+            inherits_from=payload.get("inherits_from"),
+        ),
+        key_row,
+    )
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE policy_revisions SET rego_text = ? WHERE policy_id = ? AND version = 1",
+            (rego_text, policy.id),
+        )
+    return policy
 
 
 @app.get("/policies/{policy_id}/opa", response_model=OpaPolicyExport)
@@ -1386,6 +1755,7 @@ def export_policy_opa(
         org_id=org_id,
         rule=rule,
         opa_input=opa_input,
+        rego=_rego_from_rule(PolicyRule(**rule)),
     )
 
 
@@ -1537,7 +1907,7 @@ def evaluate(
     policy_data = row_to_dict(policy_row)
     resource_data = row_to_dict(resource_row)
 
-    policy_rule = PolicyRule(**parse_json_field(policy_data["rule_json"]))
+    policy_rule = _resolve_policy_rule(org_id, policy_data)
     resource = Resource(
         id=resource_data["id"],
         org_id=resource_data["org_id"],
@@ -1550,7 +1920,7 @@ def evaluate(
         created_at=resource_data["created_at"],
     )
 
-    decision, rationale = evaluate_policy(policy_rule, payload.principal, payload.action, resource)
+    decision, rationale, explain = evaluate_policy(policy_rule, payload.principal, payload.action, resource)
 
     evaluation_id = str(uuid.uuid4())
     created_at = now_iso()
@@ -1573,8 +1943,8 @@ def evaluate(
         record_hash = _hash_record(payload_hash, prev_hash)
         conn.execute(
             """
-            INSERT INTO evaluations (id, org_id, policy_id, principal, action, resource_id, decision, rationale, created_at, prev_hash, record_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO evaluations (id, org_id, policy_id, principal, action, resource_id, decision, rationale, explain_json, created_at, prev_hash, record_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 evaluation_id,
@@ -1585,6 +1955,7 @@ def evaluate(
                 payload.resource_id,
                 decision,
                 rationale,
+                dump_json_field(explain),
                 created_at,
                 prev_hash,
                 record_hash,
@@ -1592,7 +1963,7 @@ def evaluate(
         )
         conn.execute(
             "INSERT INTO decision_logs (id, org_id, payload_json, created_at) VALUES (?, ?, ?, ?)",
-            (str(uuid.uuid4()), org_id, dump_json_field(payload_hash), created_at),
+            (str(uuid.uuid4()), org_id, dump_json_field({**payload_hash, "explain": explain}), created_at),
         )
 
     return Evaluation(
@@ -1608,6 +1979,7 @@ def evaluate(
         created_at=created_at,
         prev_hash=prev_hash,
         record_hash=record_hash,
+        explain=explain,
     )
 
 
@@ -1617,6 +1989,140 @@ def v1_evaluate(
     key_row: dict = Depends(_require_org_and_scopes(["evaluations:write"])),
 ) -> Evaluation:
     return evaluate(payload, key_row)
+
+
+@app.post("/enforce", response_model=EnforcementDecision)
+def enforce(
+    payload: EnforcementRequest,
+    key_row: dict = Depends(_require_org_and_scopes(["evaluations:write", "policies:read", "resources:read"])),
+) -> EnforcementDecision:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        policy_row = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (payload.policy_id, org_id),
+        ).fetchone()
+        resource_row = conn.execute(
+            "SELECT * FROM resources WHERE id = ? AND org_id = ?",
+            (payload.resource_id, org_id),
+        ).fetchone()
+    if not policy_row or not resource_row:
+        raise HTTPException(status_code=404, detail="Policy or resource not found")
+    policy_rule = _resolve_policy_rule(org_id, row_to_dict(policy_row))
+    resource_data = row_to_dict(resource_row)
+    resource = Resource(
+        id=resource_data["id"],
+        org_id=resource_data["org_id"],
+        name=resource_data["name"],
+        type=resource_data["type"],
+        attributes=parse_json_field(resource_data["attributes_json"]),
+        source_system=resource_data.get("source_system") or "manual",
+        external_id=resource_data.get("external_id"),
+        ai_metadata=parse_json_field(resource_data.get("ai_metadata_json", "")) or None,
+        created_at=resource_data["created_at"],
+    )
+    decision, rationale, explain = evaluate_policy(policy_rule, payload.principal, payload.action, resource)
+    risk_score = _compute_risk_score(resource, payload.action)
+    threshold = payload.risk_threshold if payload.risk_threshold is not None else settings.risk_score_threshold
+    enforced = False
+    if payload.webhook_enforcement:
+        with get_conn() as conn:
+            webhook_row = conn.execute(
+                "SELECT * FROM webhooks WHERE org_id = ? AND enabled = 1 ORDER BY created_at DESC LIMIT 1",
+                (org_id,),
+            ).fetchone()
+        if webhook_row:
+            status_code, response_body = _deliver_webhook(
+                webhook_row["url"],
+                webhook_row["secret"],
+                {
+                    "principal": payload.principal,
+                    "action": payload.action,
+                    "resource_id": payload.resource_id,
+                    "policy_id": payload.policy_id,
+                    "decision": decision,
+                    "risk_score": risk_score,
+                },
+            )
+            if status_code and response_body:
+                try:
+                    response_json = json.loads(response_body)
+                    if response_json.get("decision") in {"allow", "deny"}:
+                        decision = response_json["decision"]
+                        rationale = response_json.get("rationale") or "Webhook enforcement decision"
+                        enforced = True
+                except json.JSONDecodeError:
+                    pass
+    if decision == "allow" and risk_score >= threshold:
+        decision = "deny"
+        rationale = "Denied by risk threshold"
+        enforced = True
+    return EnforcementDecision(
+        decision=decision,
+        rationale=rationale,
+        risk_score=risk_score,
+        enforced=enforced,
+        policy_id=payload.policy_id,
+        resource_id=payload.resource_id,
+        principal=payload.principal,
+        action=payload.action,
+        explain=explain,
+    )
+
+
+@app.get("/evaluations/{evaluation_id}/replay", response_model=dict)
+def replay_evaluation(
+    evaluation_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["evaluations:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        eval_row = conn.execute(
+            "SELECT * FROM evaluations WHERE id = ? AND org_id = ?",
+            (evaluation_id, org_id),
+        ).fetchone()
+        if not eval_row:
+            raise HTTPException(status_code=404, detail="Evaluation not found")
+        policy_row = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (eval_row["policy_id"], org_id),
+        ).fetchone()
+        resource_row = conn.execute(
+            "SELECT * FROM resources WHERE id = ? AND org_id = ?",
+            (eval_row["resource_id"], org_id),
+        ).fetchone()
+    if not policy_row or not resource_row:
+        raise HTTPException(status_code=404, detail="Policy or resource not found")
+    policy_rule = _resolve_policy_rule(org_id, row_to_dict(policy_row))
+    resource_data = row_to_dict(resource_row)
+    resource = Resource(
+        id=resource_data["id"],
+        org_id=resource_data["org_id"],
+        name=resource_data["name"],
+        type=resource_data["type"],
+        attributes=parse_json_field(resource_data["attributes_json"]),
+        source_system=resource_data.get("source_system") or "manual",
+        external_id=resource_data.get("external_id"),
+        ai_metadata=parse_json_field(resource_data.get("ai_metadata_json", "")) or None,
+        created_at=resource_data["created_at"],
+    )
+    new_decision, new_rationale, new_explain = evaluate_policy(
+        policy_rule,
+        eval_row["principal"],
+        eval_row["action"],
+        resource,
+    )
+    stored_decision = eval_row["decision"]
+    drift = stored_decision != new_decision
+    return {
+        "evaluation_id": evaluation_id,
+        "stored_decision": stored_decision,
+        "new_decision": new_decision,
+        "stored_rationale": eval_row.get("rationale"),
+        "new_rationale": new_rationale,
+        "drift": drift,
+        "explain": new_explain,
+    }
 
 
 @app.post("/playground/evaluate", response_model=list[PlaygroundDecision])
@@ -1651,14 +2157,16 @@ def playground_evaluate(
     results: list[PlaygroundDecision] = []
     for row in policy_rows:
         data = row_to_dict(row)
-        rule = PolicyRule(**parse_json_field(data["rule_json"]))
-        decision, rationale = evaluate_policy(rule, payload.principal, payload.action, resource)
+        rule = _resolve_policy_rule(org_id, data)
+        decision, rationale, explain = evaluate_policy(rule, payload.principal, payload.action, resource)
         matched = {}
         combined_attributes = dict(resource.attributes)
         if resource.ai_metadata:
             combined_attributes.update(resource.ai_metadata)
         for key, value in rule.required_attributes.items():
             matched[key] = combined_attributes.get(key)
+        if explain:
+            matched.update(explain)
         results.append(
             PlaygroundDecision(
                 policy_id=data["id"],
@@ -1678,7 +2186,7 @@ def list_evaluations(key_row: dict = Depends(_require_org_and_scopes(["evaluatio
             "SELECT * FROM evaluations WHERE org_id = ? ORDER BY created_at DESC",
             (org_id,),
         ).fetchall()
-    return [Evaluation(**row_to_dict(row)) for row in rows]
+    return [_evaluation_from_row(row_to_dict(row)) for row in rows]
 
 
 @app.post("/evidence/retain", response_model=RetentionStatus)
@@ -1776,7 +2284,7 @@ def evidence_search(
         ).fetchone()
     total_count = total["total"] if isinstance(total, dict) else total[0]
     return EvidenceSearchResult(
-        evaluations=[Evaluation(**row_to_dict(row)) for row in rows],
+        evaluations=[_evaluation_from_row(row_to_dict(row)) for row in rows],
         total=total_count,
     )
 
@@ -1839,6 +2347,79 @@ def verify_evidence_chain(
     return result
 
 
+@app.post("/evidence/attestations", response_model=EvidenceAttestation)
+def create_attestation(
+    payload: EvidenceAttestationCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> EvidenceAttestation:
+    org_id = key_row["org_id"]
+    try:
+        day = datetime.strptime(payload.date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date format (YYYY-MM-DD)") from exc
+    start_iso = day.isoformat() + "Z"
+    end_iso = (day + timedelta(days=1)).isoformat() + "Z"
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT record_hash FROM evaluations WHERE org_id = ? AND created_at >= ? AND created_at < ? ORDER BY created_at ASC",
+            (org_id, start_iso, end_iso),
+        ).fetchall()
+    record_hashes = [row["record_hash"] for row in rows if row["record_hash"]]
+    digest_input = "".join(record_hashes)
+    digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
+    signature = hmac.new(
+        settings.evidence_hmac_secret.encode("utf-8"),
+        digest.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    attestation_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO evidence_attestations (id, org_id, date, record_count, digest, signature, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (attestation_id, org_id, payload.date, len(record_hashes), digest, signature, created_at),
+        )
+    return EvidenceAttestation(
+        id=attestation_id,
+        org_id=org_id,
+        date=payload.date,
+        record_count=len(record_hashes),
+        digest=digest,
+        signature=signature,
+        created_at=created_at,
+    )
+
+
+@app.get("/evidence/attestations", response_model=list[EvidenceAttestation])
+def list_attestations(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> list[EvidenceAttestation]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM evidence_attestations WHERE org_id = ? ORDER BY date DESC",
+            (org_id,),
+        ).fetchall()
+    return [EvidenceAttestation(**row_to_dict(row)) for row in rows]
+
+
+@app.get("/evidence/attestations/{date}", response_model=EvidenceAttestation)
+def get_attestation(
+    date: str,
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> EvidenceAttestation:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM evidence_attestations WHERE org_id = ? AND date = ?",
+            (org_id, date),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Attestation not found")
+    return EvidenceAttestation(**row_to_dict(row))
+
+
 @app.get("/evidence/export", response_model=EvidenceExport)
 def export_evidence(
     format: str = "json",
@@ -1874,7 +2455,7 @@ def export_evidence(
             f"SELECT * FROM evaluations WHERE {where} ORDER BY created_at DESC",
             tuple(params),
         ).fetchall()
-    evaluations = [Evaluation(**row_to_dict(row)) for row in rows]
+    evaluations = [_evaluation_from_row(row_to_dict(row)) for row in rows]
     exported_at = now_iso()
     export_id = str(uuid.uuid4())
 
@@ -1897,6 +2478,7 @@ def export_evidence(
         ).hexdigest()
         content_hash = _hash_content(csv_data)
         content_bytes = len(csv_data.encode("utf-8"))
+        _append_to_vault(csv_data, export_id)
         with get_conn() as conn:
             conn.execute(
                 "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, content_bytes, record_count, created_at)"
@@ -1917,6 +2499,7 @@ def export_evidence(
     ).hexdigest()
     content_hash = _hash_content(json_payload)
     content_bytes = len(json_payload.encode("utf-8"))
+    _append_to_vault(json_payload, export_id)
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, content_bytes, record_count, created_at)"

@@ -194,6 +194,20 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 description TEXT,
                 rule_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                inherits_from TEXT,
+                version INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS policy_revisions (
+                id TEXT PRIMARY KEY,
+                policy_id TEXT NOT NULL,
+                org_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                description TEXT,
+                rule_json TEXT NOT NULL,
+                approved_by TEXT,
+                approval_signature TEXT,
+                rego_text TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS resources (
@@ -216,6 +230,7 @@ def init_db() -> None:
                 resource_id TEXT NOT NULL,
                 decision TEXT NOT NULL,
                 rationale TEXT,
+                explain_json TEXT,
                 created_at TEXT NOT NULL,
                 prev_hash TEXT,
                 record_hash TEXT
@@ -236,6 +251,15 @@ def init_db() -> None:
                 valid INTEGER NOT NULL,
                 checked_records INTEGER NOT NULL,
                 last_hash TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS evidence_attestations (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                record_count INTEGER NOT NULL,
+                digest TEXT NOT NULL,
+                signature TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS webhooks (
@@ -265,6 +289,8 @@ def init_db() -> None:
             """
         )
         _add_column_if_missing(conn, "policies", "org_id", "TEXT")
+        _add_column_if_missing(conn, "policies", "inherits_from", "TEXT")
+        _add_column_if_missing(conn, "policies", "version", "INTEGER")
         _add_column_if_missing(conn, "resources", "org_id", "TEXT")
         _add_column_if_missing(conn, "evaluations", "org_id", "TEXT")
         _add_column_if_missing(conn, "resources", "source_system", "TEXT")
@@ -274,6 +300,7 @@ def init_db() -> None:
         _add_column_if_missing(conn, "api_keys", "revoked_at", "TEXT")
         _add_column_if_missing(conn, "evaluations", "prev_hash", "TEXT")
         _add_column_if_missing(conn, "evaluations", "record_hash", "TEXT")
+        _add_column_if_missing(conn, "evaluations", "explain_json", "TEXT")
         _add_column_if_missing(conn, "evidence_exports", "content_bytes", "INTEGER")
         _add_column_if_missing(conn, "webhook_deliveries", "attempts", "INTEGER")
         _add_column_if_missing(conn, "webhook_deliveries", "next_attempt_at", "TEXT")

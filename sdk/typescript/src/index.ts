@@ -59,6 +59,19 @@ export class Client {
     });
   }
 
+  enforce(policyId: string, principal: string, action: string, resourceId: string, riskThreshold?: number) {
+    const payload: Record<string, unknown> = {
+      policy_id: policyId,
+      principal,
+      action,
+      resource_id: resourceId,
+    };
+    if (riskThreshold !== undefined) {
+      payload.risk_threshold = riskThreshold;
+    }
+    return this.request("POST", "/enforce", payload);
+  }
+
   exportEvidence() {
     return this.request("GET", "/evidence/export");
   }
@@ -66,4 +79,26 @@ export class Client {
   verifyEvidence() {
     return this.request("GET", "/evidence/verify");
   }
+}
+
+export function createEnforcementMiddleware(options: {
+  client: Client;
+  policyId: string;
+  resolveResourceId: (req: any) => string;
+  resolvePrincipal: (req: any) => string;
+  resolveAction: (req: any) => string;
+}) {
+  return async (req: any, res: any, next: any) => {
+    const decision = await options.client.enforce(
+      options.policyId,
+      options.resolvePrincipal(req),
+      options.resolveAction(req),
+      options.resolveResourceId(req),
+    );
+    if (decision && decision.decision === "deny") {
+      res.status(403).send("Access denied");
+      return;
+    }
+    next();
+  };
 }

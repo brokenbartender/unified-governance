@@ -13,3 +13,20 @@ const policy = await client.createPolicy("Allow read", {
   required_attributes: {},
 });
 ```
+
+## Enforcement Middleware (Express)
+```ts
+import { Client, createEnforcementMiddleware } from "unified-governance-sdk";
+
+const client = new Client("https://unified-governance.onrender.com", "YOUR_API_KEY");
+
+app.use(
+  createEnforcementMiddleware({
+    client,
+    policyId: "POLICY_ID",
+    resolveResourceId: () => "RESOURCE_ID",
+    resolvePrincipal: (req) => req.user?.email ?? "anonymous",
+    resolveAction: () => "read",
+  })
+);
+```

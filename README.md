@@ -43,14 +43,24 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /orgs/{org_id}/usage`
 - `GET /orgs/{org_id}/export`
 - `POST /policies`
+- `PUT /policies/{policy_id}`
+- `GET /policies/{policy_id}/revisions`
+- `POST /policies/{policy_id}/rollback`
+- `POST /policies/{policy_id}/simulate`
+- `GET /policies/{policy_id}/rego`
+- `POST /policies/import/rego`
 - `POST /policies/generate`
 - `GET /policies/{policy_id}/opa`
 - `POST /resources`
 - `POST /evaluations`
+- `GET /evaluations/{id}/replay`
+- `POST /enforce`
 - `GET /evidence/verify`
 - `POST /evidence/retain`
 - `GET /evidence/export` (JSON) or `?format=csv` (CSV + signature header)
 - `GET /evidence/search` (supports `start`, `end`, `decision`, `policy_id`, `principal`)
+- `POST /evidence/attestations`
+- `GET /evidence/attestations`
 - `GET /connectors`
 - `POST /scim/Users`
 - `GET /scim/Users`
@@ -91,6 +101,15 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `docs/CAPABILITIES.md`
 - `docs/FEATURE_MATRIX.md`
 - `docs/ARCHITECTURE.md`
+- `docs/ROI_CALCULATOR.md`
+- `docs/PERSONA_SECURITY.md`
+- `docs/PERSONA_COMPLIANCE.md`
+- `docs/PERSONA_PLATFORM.md`
+- `docs/DIFFERENTIATORS.md`
+- `docs/PRICING_LICENSING.md`
+- `docs/ACQUISITION_DATA_ROOM.md`
+- `docs/RISK_REDUCTION_REPORT.md`
+- `docs/ENFORCEMENT.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`

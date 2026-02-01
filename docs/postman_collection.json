@@ -1072,6 +1072,201 @@
       "response": []
     },
     {
+      "name": "Update Policy",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Policy Revisions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/revisions",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "revisions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Rollback Policy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/rollback",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "rollback"
+          ],
+          "query": [
+            {
+              "key": "version",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Simulate Policy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/simulate",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "simulate"
+          ],
+          "query": [
+            {
+              "key": "version",
+              "value": ""
+            },
+            {
+              "key": "as_of",
+              "value": ""
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Export Policy Rego",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/rego",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "rego"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Import Policy Rego",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/import/rego",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "import",
+            "rego"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Export Policy Opa",
       "request": {
         "method": "GET",
@@ -1332,6 +1527,64 @@
       "response": []
     },
     {
+      "name": "Enforce",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/enforce",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "enforce"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Replay Evaluation",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evaluations/{evaluation_id}/replay",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evaluations",
+            "{evaluation_id}",
+            "replay"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Playground Evaluate",
       "request": {
         "method": "POST",
@@ -1553,6 +1806,92 @@
           "path": [
             "evidence",
             "verify"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Attestation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evidence/attestations",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evidence",
+            "attestations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Attestations",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evidence/attestations",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evidence",
+            "attestations"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Attestation",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evidence/attestations/{date}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evidence",
+            "attestations",
+            "{date}"
           ]
         }
       },

@@ -8,21 +8,24 @@ This document is a machine-readable summary of the current system capabilities.
 - **Primary Buyers:** Enterprise security, compliance, platform engineering teams.
 
 ## Core Capabilities
-- **Multi?tenant org model:** Orgs, users, memberships, teams, roles.
+- **Multi-tenant org model:** Orgs, users, memberships, teams, roles.
 - **Policy engine:** Attribute-based policy evaluation with allow/deny decisions.
-- **Evidence chain:** Hash?chained evaluations, verification endpoint, export with HMAC signature.
+- **Policy versioning:** Immutable revisions + rollback.
+- **Evidence chain:** Hash-chained evaluations, verification endpoint, export with HMAC signature.
+- **Attestations:** Daily evidence digests for audit proofs.
 - **Retention:** Evidence retention + admin cleanup endpoints.
 - **Usage metering:** Usage summaries for billing integration.
 - **Connectors:** Modular connector SDK + sample connectors (Google Drive, Snowflake, Okta, CloudTrail).
 - **Webhooks:** Delivery logs, retries, secret rotation.
 - **Admin dashboard:** Policy playground, key management, team view, evidence search, trust badge.
 - **Identity:** SSO/SCIM stubs, user provisioning flows.
+- **Enforcement:** `/enforce` endpoint + SDK middleware helpers.
 
 ## Clarifications
 - **SSO/SCIM stubs:** Provide API surface + UI flows for initiation/provisioning. They do not include full IdP handshakes, token validation, or vendor-specific provisioning callbacks.
 - **Evidence chain integrity:** Uses SHA-256 record hashing and HMAC-SHA256 signatures for exports (CSV/JSON).
 - **Connector scope:** Google Drive and Snowflake are architectural mocks; Okta and CloudTrail are stub samples. The SDK is production-ready, while connectors are meant as integration templates.
-- **Enforcement boundary:** This system is a decision + evidence layer. Enforcement happens in the caller (API gateway, proxy, or app) using evaluation results, or via outbound webhooks.
+- **Enforcement boundary:** Provides decision + evidence + enforcement helpers (`/enforce`, SDK middleware). Final enforcement is typically in the caller (gateway/proxy/app).
 - **Observability:** Health, readiness, metrics, decision log export + SSE.
 
 ## API Surface (High Level)

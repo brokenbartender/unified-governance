@@ -154,18 +154,46 @@ class PolicyRule(BaseModel):
     allowed_actions: List[str] = Field(default_factory=lambda: ["*"])
     resource_types: List[str] = Field(default_factory=lambda: ["*"])
     required_attributes: Dict[str, Any] = Field(default_factory=dict)
+    deny_principals: List[str] = Field(default_factory=list)
+    deny_actions: List[str] = Field(default_factory=list)
+    deny_resource_types: List[str] = Field(default_factory=list)
+    exception_principals: List[str] = Field(default_factory=list)
+    exception_actions: List[str] = Field(default_factory=list)
+    exception_resource_types: List[str] = Field(default_factory=list)
 
 
 class PolicyCreate(BaseModel):
     name: str
     description: Optional[str] = None
     rule: PolicyRule
+    inherits_from: Optional[str] = None
 
 
 class Policy(PolicyCreate):
     id: str
     org_id: str
     created_at: str
+    version: int = 1
+
+
+class PolicyRevision(BaseModel):
+    id: str
+    policy_id: str
+    org_id: str
+    version: int
+    rule: PolicyRule
+    description: Optional[str] = None
+    created_at: str
+    approved_by: Optional[str] = None
+    approval_signature: Optional[str] = None
+    rego_text: Optional[str] = None
+
+
+class PolicyRevisionCreate(BaseModel):
+    description: Optional[str] = None
+    rule: PolicyRule
+    approved_by: Optional[str] = None
+    rego_text: Optional[str] = None
 
 
 class AiMetadata(BaseModel):
@@ -210,6 +238,7 @@ class Evaluation(BaseModel):
     created_at: str
     prev_hash: Optional[str] = None
     record_hash: Optional[str] = None
+    explain: Optional[Dict[str, Any]] = None
 
 
 class EvidenceExport(BaseModel):
@@ -320,6 +349,42 @@ class OpaPolicyExport(BaseModel):
     org_id: str
     rule: Dict[str, Any]
     opa_input: Dict[str, Any]
+    rego: Optional[str] = None
+
+
+class EvidenceAttestation(BaseModel):
+    id: str
+    org_id: str
+    date: str
+    record_count: int
+    digest: str
+    signature: str
+    created_at: str
+
+
+class EvidenceAttestationCreate(BaseModel):
+    date: str
+
+
+class EnforcementRequest(BaseModel):
+    policy_id: str
+    principal: str
+    action: str
+    resource_id: str
+    risk_threshold: Optional[int] = None
+    webhook_enforcement: bool = False
+
+
+class EnforcementDecision(BaseModel):
+    decision: str
+    rationale: str
+    risk_score: int
+    enforced: bool
+    policy_id: str
+    resource_id: str
+    principal: str
+    action: str
+    explain: Optional[Dict[str, Any]] = None
 
 
 class ScimUser(BaseModel):

@@ -11,6 +11,7 @@
 3. **Resource** registered with source metadata and AI attributes.
 4. **Evaluation** performs policy decision and stores evidence chain.
 5. **Evidence** exported and verified with HMAC signatures.
+6. **Attestations** generate daily digests for audit proofs.
 
 ## Evidence Integrity
 - Each evaluation includes `record_hash` chained to the previous record.

@@ -378,3 +378,98 @@ def test_status_and_metrics():
     metrics = client.get("/metrics")
     assert metrics.status_code == 200
     assert "ug_orgs_total" in metrics.text
+
+
+def test_policy_revisions_and_simulation():
+    org_id, api_key, _ = _create_org_and_key(scopes=["policies:read", "policies:write", "resources:read", "resources:write"])
+    headers = {"X-API-Key": api_key}
+
+    policy_resp = client.post(
+        "/policies",
+        headers=headers,
+        json={
+            "name": "Allow read",
+            "rule": {
+                "allowed_principals": ["user"],
+                "allowed_actions": ["read"],
+                "resource_types": ["file"],
+                "required_attributes": {},
+            },
+        },
+    )
+    policy_id = policy_resp.json()["id"]
+
+    update_resp = client.put(
+        f"/policies/{policy_id}",
+        headers=headers,
+        json={
+            "description": "Update",
+            "rule": {
+                "allowed_principals": ["user"],
+                "allowed_actions": ["read", "write"],
+                "resource_types": ["file"],
+                "required_attributes": {},
+            },
+        },
+    )
+    assert update_resp.status_code == 200
+
+    revisions = client.get(f"/policies/{policy_id}/revisions", headers=headers)
+    assert revisions.status_code == 200
+    assert len(revisions.json()) >= 2
+
+    resource_resp = client.post(
+        "/resources",
+        headers=headers,
+        json={"name": "Doc", "type": "file", "attributes": {}},
+    )
+    sim_resp = client.post(
+        f"/policies/{policy_id}/simulate",
+        headers=headers,
+        json={"principal": "user", "action": "read", "resource_id": resource_resp.json()["id"]},
+    )
+    assert sim_resp.status_code == 200
+
+
+def test_enforce_and_attestations():
+    org_id, api_key, _ = _create_org_and_key(
+        scopes=["evidence:read", "policies:write", "policies:read", "resources:write", "resources:read", "evaluations:write"]
+    )
+    headers = {"X-API-Key": api_key}
+
+    policy_resp = client.post(
+        "/policies",
+        headers=headers,
+        json={
+            "name": "Allow read",
+            "rule": {
+                "allowed_principals": ["user"],
+                "allowed_actions": ["read"],
+                "resource_types": ["file"],
+                "required_attributes": {},
+            },
+        },
+    )
+    resource_resp = client.post(
+        "/resources",
+        headers=headers,
+        json={"name": "Doc", "type": "file", "attributes": {}},
+    )
+    enforce_resp = client.post(
+        "/enforce",
+        headers=headers,
+        json={
+            "policy_id": policy_resp.json()["id"],
+            "principal": "user",
+            "action": "read",
+            "resource_id": resource_resp.json()["id"],
+        },
+    )
+    assert enforce_resp.status_code == 200
+
+    attestation = client.post(
+        "/evidence/attestations",
+        headers=headers,
+        json={"date": "2026-02-01"},
+    )
+    assert attestation.status_code == 200
