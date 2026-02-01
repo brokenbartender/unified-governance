@@ -87,6 +87,10 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 ## Operational Intelligence
 - `docs/OPERATIONAL_INTELLIGENCE.md`
 - `docs/MAINTENANCE.md`
+- `docs/SYSTEM_STATE.md`
+- `docs/CAPABILITIES.md`
+- `docs/FEATURE_MATRIX.md`
+- `docs/ARCHITECTURE.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`
