@@ -7,9 +7,10 @@
 - Retention: configurable retention window
 
 ## ISO 27001 (Annex A)
-- A.5 Policies: documented PRD + roadmap
+- A.5 Policies: documented PRD + security model
 - A.8 Asset management: resource catalog with source/external IDs
-- A.12 Logging: evidence logs with chain-of-custody
+- A.8 Logging: evidence logs with chain-of-custody
+- A.8 Cryptography: HMAC integrity checks
 
 ## NIST AI RMF
 - Govern: policy-as-code + org ownership

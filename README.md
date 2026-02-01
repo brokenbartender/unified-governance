@@ -44,6 +44,11 @@ Open http://127.0.0.1:8000/docs for the API UI.
 - `POST /scim/Users`
 - `GET /scim/Users`
 
+## Compliance Docs
+- `docs/CONTROL_MATRIX.md`
+- `docs/COMPLIANCE_ALIGNMENT.md`
+- `docs/SECURITY_MODEL.md`
+
 ## Files
 - `src/app.py` FastAPI entrypoint
 - `src/policy_engine.py` Policy evaluation logic
