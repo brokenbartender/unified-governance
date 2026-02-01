@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import hmac
@@ -214,6 +215,27 @@ def _rego_from_rule(rule: PolicyRule) -> str:
     lines.append("}")
     return "\n".join(lines)
 
+
+def _cache_key(policy_id: str, principal: str, action: str, resource_id: str) -> str:
+    return f"{policy_id}:{principal}:{action}:{resource_id}"
+
+
+def _get_cached_decision(cache_key: str) -> dict | None:
+    entry = _decision_cache.get(cache_key)
+    if not entry:
+        return None
+    expires_at, payload = entry
+    if time.time() > expires_at:
+        _decision_cache.pop(cache_key, None)
+        return None
+    return payload
+
+
+def _set_cached_decision(cache_key: str, payload: dict) -> None:
+    if len(_decision_cache) >= settings.decision_cache_size:
+        _decision_cache.pop(next(iter(_decision_cache)))
+    _decision_cache[cache_key] = (time.time() + settings.decision_cache_ttl, payload)
+
 def _deliver_webhook(url: str, secret: str | None, payload: dict) -> tuple[int | None, str]:
     if not settings.enable_webhook_delivery:
         return None, "delivery disabled"
@@ -232,6 +254,7 @@ def _deliver_webhook(url: str, secret: str | None, payload: dict) -> tuple[int |
 
 
 _rate_limiter: dict[str, list[float]] = {}
+_decision_cache: dict[str, tuple[float, dict]] = {}
 
 
 def _rate_limit(org_id: str, bucket: str) -> None:
@@ -2188,6 +2211,34 @@ def import_policy_bundle(
     return {"imported": imported, "org_id": org_id}
 
 
+@app.get("/policies/{policy_id}/impact")
+def policy_impact(
+    policy_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read", "resources:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        policy_row = conn.execute(
+            "SELECT * FROM policies WHERE id = ? AND org_id = ?",
+            (policy_id, org_id),
+        ).fetchone()
+        resources = conn.execute(
+            "SELECT * FROM resources WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+    if not policy_row:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    rule = PolicyRule(**parse_json_field(row_to_dict(policy_row)["rule_json"]))
+    affected = 0
+    for row in resources:
+        data = row_to_dict(row)
+        if _matches(data["type"], rule.resource_types):
+            affected += 1
+    total = len(resources)
+    percent = 0 if total == 0 else round((affected / total) * 100, 2)
+    return {"policy_id": policy_id, "affected_resources": affected, "total_resources": total, "percent": percent}
+
+
 @app.post("/policies/import/rego", response_model=Policy)
 def import_policy_rego(
     payload: dict,
@@ -2304,6 +2355,9 @@ def create_resource(
     resource_id = str(uuid.uuid4())
     created_at = now_iso()
     ai_metadata = payload.ai_metadata.model_dump() if payload.ai_metadata else {}
+    if payload.ai_metadata and payload.ai_metadata.sensitivity_level is not None:
+        if payload.ai_metadata.sensitivity_level < 1 or payload.ai_metadata.sensitivity_level > 5:
+            raise HTTPException(status_code=400, detail="sensitivity_level must be between 1 and 5")
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO resources (id, org_id, name, type, attributes_json, source_system, external_id, ai_metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -2421,7 +2475,15 @@ def evaluate(
         created_at=resource_data["created_at"],
     )
 
-    decision, rationale, explain = evaluate_policy(policy_rule, payload.principal, payload.action, resource)
+    cache_key = _cache_key(payload.policy_id, payload.principal, payload.action, payload.resource_id)
+    cached = _get_cached_decision(cache_key)
+    if cached:
+        decision = cached["decision"]
+        rationale = cached["rationale"]
+        explain = cached["explain"]
+    else:
+        decision, rationale, explain = evaluate_policy(policy_rule, payload.principal, payload.action, resource)
+        _set_cached_decision(cache_key, {"decision": decision, "rationale": rationale, "explain": explain})
 
     evaluation_id = str(uuid.uuid4())
     created_at = now_iso()
@@ -2490,6 +2552,17 @@ def v1_evaluate(
     key_row: dict = Depends(_require_org_and_scopes(["evaluations:write"])),
 ) -> Evaluation:
     return evaluate(payload, key_row)
+
+
+@app.post("/evaluations/batch")
+def evaluate_batch(
+    payload: list[EvaluationRequest],
+    key_row: dict = Depends(_require_org_and_scopes(["evaluations:write"])),
+) -> list[Evaluation]:
+    results = []
+    for item in payload:
+        results.append(evaluate(item, key_row))
+    return results
 
 
 @app.post("/enforce", response_model=EnforcementDecision)
@@ -3046,6 +3119,20 @@ def export_evidence(
     )
 
 
+@app.post("/evidence/export/file")
+def export_evidence_file(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    export = export_evidence(format="json", key_row=key_row)
+    payload = json.dumps({"export_id": export.export_id, "org_id": org_id, "evaluations": [e.model_dump() for e in export.evaluations]})
+    path = os.path.join("output", f"evidence_export_{export.export_id}.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+    return {"path": path, "export_id": export.export_id}
+
+
 @app.get("/v1/evidence/export", response_model=EvidenceExport)
 def v1_export_evidence(
     format: str = "json",
@@ -3451,6 +3538,24 @@ def export_siem(
     return payloads
 
 
+@app.post("/siem/push")
+def push_siem(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+):
+    if not settings.siem_hec_url or not settings.siem_hec_token:
+        raise HTTPException(status_code=400, detail="SIEM_HEC_URL and SIEM_HEC_TOKEN required")
+    payloads = export_siem(format="hec", key_row=key_row)
+    data = json.dumps(payloads).encode("utf-8")
+    headers = {"Authorization": f"Splunk {settings.siem_hec_token}", "Content-Type": "application/json"}
+    req = urllib.request.Request(settings.siem_hec_url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+            return {"status": resp.status, "response": body}
+    except Exception as exc:  # pragma: no cover
+        return {"status": 0, "error": str(exc)}
+
+
 @app.get("/access/query")
 def access_query(
     principal: str,
@@ -3474,6 +3579,28 @@ def access_query(
             else:
                 denied.append(data["id"])
     return {"principal": principal, "action": action, "allowed_policies": allowed, "denied_policies": denied}
+
+
+@app.post("/sso/oidc/verify")
+def oidc_verify(
+    payload: dict,
+):
+    token = payload.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing token")
+    try:
+        header_b64, payload_b64, _ = token.split(".")
+        decoded_payload = base64.urlsafe_b64decode(payload_b64 + "==").decode("utf-8")
+        claims = json.loads(decoded_payload)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid token format") from exc
+    if settings.oidc_issuer and claims.get("iss") != settings.oidc_issuer:
+        raise HTTPException(status_code=401, detail="Invalid issuer")
+    if settings.oidc_audience and claims.get("aud") != settings.oidc_audience:
+        raise HTTPException(status_code=401, detail="Invalid audience")
+    if settings.oidc_strict:
+        raise HTTPException(status_code=501, detail="Strict OIDC validation requires JWKS")
+    return {"status": "ok", "claims": claims}
 
 
 @app.post("/policies/lint")

@@ -96,6 +96,7 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /access/query`
 - `POST /policies/lint`
 - `POST /policies/{policy_id}/simulate/batch`
+- `GET /policies/{policy_id}/impact`
 - `GET /risk/anomalies`
 - `GET /evidence/timeline`
 - `GET /lineage/resource/{resource_id}`
@@ -103,6 +104,10 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `POST /backups/verify`
 - `POST /webhooks/rotate-all`
 - `POST /orgs/{org_id}/keys/rotate-all`
+- `POST /siem/push`
+- `POST /sso/oidc/verify`
+- `POST /evidence/export/file`
+- `POST /evaluations/batch`
 
 ## SDKs
 - Python: `sdk/python`

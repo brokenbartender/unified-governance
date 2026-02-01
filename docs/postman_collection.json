@@ -1835,6 +1835,34 @@
       "response": []
     },
     {
+      "name": "Policy Impact",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/policies/{policy_id}/impact",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "policies",
+            "{policy_id}",
+            "impact"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Import Policy Rego",
       "request": {
         "method": "POST",
@@ -2117,6 +2145,37 @@
           "path": [
             "v1",
             "evaluations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Evaluate Batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evaluations/batch",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evaluations",
+            "batch"
           ]
         },
         "body": {
@@ -2572,6 +2631,34 @@
               "key": "end",
               "value": ""
             }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Export Evidence File",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/evidence/export/file",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "evidence",
+            "export",
+            "file"
           ]
         }
       },
@@ -3115,6 +3202,33 @@
       "response": []
     },
     {
+      "name": "Push Siem",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/siem/push",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "siem",
+            "push"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Access Query",
       "request": {
         "method": "GET",
@@ -3147,6 +3261,38 @@
               "value": ""
             }
           ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Oidc Verify",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/sso/oidc/verify",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "sso",
+            "oidc",
+            "verify"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
         }
       },
       "response": []

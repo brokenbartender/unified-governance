@@ -20,6 +20,13 @@ class Settings:
     secret_provider: str | None = os.getenv("SECRET_PROVIDER")
     license_key: str | None = os.getenv("LICENSE_KEY")
     license_strict: bool = os.getenv("LICENSE_STRICT", "false").lower() == "true"
+    decision_cache_size: int = int(os.getenv("DECISION_CACHE_SIZE", "512"))
+    decision_cache_ttl: int = int(os.getenv("DECISION_CACHE_TTL", "60"))
+    oidc_issuer: str | None = os.getenv("OIDC_ISSUER")
+    oidc_audience: str | None = os.getenv("OIDC_AUDIENCE")
+    oidc_strict: bool = os.getenv("OIDC_STRICT", "false").lower() == "true"
+    siem_hec_url: str | None = os.getenv("SIEM_HEC_URL")
+    siem_hec_token: str | None = os.getenv("SIEM_HEC_TOKEN")
     retention_days: int = int(os.getenv("RETENTION_DAYS", "90"))
     decision_log_retention_days: int = int(os.getenv("DECISION_LOG_RETENTION_DAYS", "180"))
     webhook_delivery_retention_days: int = int(os.getenv("WEBHOOK_DELIVERY_RETENTION_DAYS", "30"))
