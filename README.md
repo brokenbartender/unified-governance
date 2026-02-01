@@ -20,11 +20,17 @@ Open http://127.0.0.1:8000/docs for the API UI.
 
 ## API Overview
 - `POST /orgs`
+- `POST /users`
+- `POST /orgs/{org_id}/memberships`
 - `POST /orgs/{org_id}/keys`
+- `POST /orgs/{org_id}/keys/{key_id}/rotate`
+- `POST /orgs/{org_id}/keys/{key_id}/revoke`
+- `POST /orgs/{org_id}/sso`
 - `POST /policies`
+- `GET /policies/{policy_id}/opa`
 - `POST /resources`
 - `POST /evaluations`
-- `GET /evaluations`
+- `POST /evidence/retain`
 - `GET /evidence/export` (JSON) or `?format=csv` (CSV + signature header)
 - `GET /connectors`
 

@@ -52,13 +52,38 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS org_memberships (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(org_id) REFERENCES orgs(id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
             CREATE TABLE IF NOT EXISTS api_keys (
                 id TEXT PRIMARY KEY,
                 org_id TEXT NOT NULL,
                 name TEXT NOT NULL,
                 key_hash TEXT NOT NULL,
+                scopes_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 last_used_at TEXT,
+                revoked_at TEXT,
+                FOREIGN KEY(org_id) REFERENCES orgs(id)
+            );
+            CREATE TABLE IF NOT EXISTS sso_configs (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
                 FOREIGN KEY(org_id) REFERENCES orgs(id)
             );
             CREATE TABLE IF NOT EXISTS policies (
@@ -89,6 +114,8 @@ def init_db() -> None:
                 decision TEXT NOT NULL,
                 rationale TEXT,
                 created_at TEXT NOT NULL,
+                prev_hash TEXT,
+                record_hash TEXT,
                 FOREIGN KEY(policy_id) REFERENCES policies(id),
                 FOREIGN KEY(resource_id) REFERENCES resources(id)
             );
@@ -99,6 +126,10 @@ def init_db() -> None:
         _add_column_if_missing(conn, "evaluations", "org_id", "TEXT")
         _add_column_if_missing(conn, "resources", "source_system", "TEXT")
         _add_column_if_missing(conn, "resources", "external_id", "TEXT")
+        _add_column_if_missing(conn, "api_keys", "scopes_json", "TEXT")
+        _add_column_if_missing(conn, "api_keys", "revoked_at", "TEXT")
+        _add_column_if_missing(conn, "evaluations", "prev_hash", "TEXT")
+        _add_column_if_missing(conn, "evaluations", "record_hash", "TEXT")
 
 
 def now_iso() -> str:

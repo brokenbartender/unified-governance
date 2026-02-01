@@ -13,20 +13,59 @@ class Org(OrgCreate):
     created_at: str
 
 
+class UserCreate(BaseModel):
+    email: str
+    name: str
+
+
+class User(UserCreate):
+    id: str
+    created_at: str
+
+
+class MembershipCreate(BaseModel):
+    user_id: str
+    role: str
+
+
+class Membership(BaseModel):
+    id: str
+    org_id: str
+    user_id: str
+    role: str
+    created_at: str
+
+
 class ApiKeyCreate(BaseModel):
     name: str
+    scopes: List[str] = Field(default_factory=lambda: ["policies:read", "policies:write", "resources:read", "resources:write", "evaluations:read", "evaluations:write", "evidence:read", "connectors:read"])
 
 
 class ApiKey(BaseModel):
     id: str
     org_id: str
     name: str
+    scopes: List[str]
     created_at: str
     last_used_at: Optional[str] = None
+    revoked_at: Optional[str] = None
 
 
 class ApiKeyIssued(ApiKey):
     api_key: str
+
+
+class SsoConfigCreate(BaseModel):
+    provider: str
+    metadata: Dict[str, Any]
+
+
+class SsoConfig(BaseModel):
+    id: str
+    org_id: str
+    provider: str
+    metadata: Dict[str, Any]
+    created_at: str
 
 
 class PolicyRule(BaseModel):
@@ -79,6 +118,8 @@ class Evaluation(BaseModel):
     decision: str
     rationale: Optional[str] = None
     created_at: str
+    prev_hash: Optional[str] = None
+    record_hash: Optional[str] = None
 
 
 class EvidenceExport(BaseModel):
@@ -87,3 +128,16 @@ class EvidenceExport(BaseModel):
     format: str
     signature: str
     evaluations: List[Evaluation]
+
+
+class RetentionStatus(BaseModel):
+    retention_days: int
+    cutoff_timestamp: str
+    deleted_records: int
+
+
+class OpaPolicyExport(BaseModel):
+    policy_id: str
+    org_id: str
+    rule: Dict[str, Any]
+    opa_input: Dict[str, Any]

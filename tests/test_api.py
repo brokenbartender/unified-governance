@@ -6,19 +6,24 @@ from src.app import app
 client = TestClient(app)
 
 
-def _create_org_and_key():
+def _create_org_and_key(scopes=None):
     org_resp = client.post("/orgs", json={"name": "Acme"})
     assert org_resp.status_code == 200
     org_id = org_resp.json()["id"]
 
-    key_resp = client.post(f"/orgs/{org_id}/keys", json={"name": "test"})
+    key_payload = {"name": "test"}
+    if scopes is not None:
+        key_payload["scopes"] = scopes
+
+    key_resp = client.post(f"/orgs/{org_id}/keys", json=key_payload)
     assert key_resp.status_code == 200
     api_key = key_resp.json()["api_key"]
-    return org_id, api_key
+    key_id = key_resp.json()["id"]
+    return org_id, api_key, key_id
 
 
 def test_policy_resource_evaluation_flow():
-    org_id, api_key = _create_org_and_key()
+    org_id, api_key, _ = _create_org_and_key()
     headers = {"X-API-Key": api_key}
 
     policy_resp = client.post(
@@ -64,6 +69,7 @@ def test_policy_resource_evaluation_flow():
     )
     assert evaluation_resp.status_code == 200
     assert evaluation_resp.json()["decision"] == "allow"
+    assert evaluation_resp.json()["record_hash"]
 
     evidence_resp = client.get("/evidence/export", headers=headers)
     assert evidence_resp.status_code == 200
@@ -71,10 +77,96 @@ def test_policy_resource_evaluation_flow():
 
 
 def test_evidence_csv_export_signature_header():
-    _, api_key = _create_org_and_key()
+    _, api_key, _ = _create_org_and_key()
     headers = {"X-API-Key": api_key}
 
     response = client.get("/evidence/export?format=csv", headers=headers)
     assert response.status_code == 200
     assert response.headers.get("X-Evidence-Signature")
     assert "text/csv" in response.headers.get("content-type", "")
+
+
+def test_key_rotation_and_revocation():
+    org_id, api_key, key_id = _create_org_and_key(scopes=["orgs:read", "orgs:write"])
+    headers = {"X-API-Key": api_key}
+
+    rotate_resp = client.post(f"/orgs/{org_id}/keys/{key_id}/rotate", headers=headers)
+    assert rotate_resp.status_code == 200
+    new_key = rotate_resp.json()["api_key"]
+    assert new_key
+
+    list_resp = client.get(f"/orgs/{org_id}/keys", headers={"X-API-Key": new_key})
+    assert list_resp.status_code == 200
+
+    revoke_resp = client.post(f"/orgs/{org_id}/keys/{key_id}/revoke", headers={"X-API-Key": new_key})
+    assert revoke_resp.status_code == 200
+
+    list_after_revoke = client.get(f"/orgs/{org_id}/keys", headers={"X-API-Key": new_key})
+    assert list_after_revoke.status_code == 401
+
+
+def test_retention_enforcement():
+    _, api_key, _ = _create_org_and_key(scopes=["evidence:write", "evidence:read", "policies:write", "resources:write", "evaluations:write"])
+    headers = {"X-API-Key": api_key}
+
+    policy_resp = client.post(
+        "/policies",
+        headers=headers,
+        json={
+            "name": "Allow all",
+            "rule": {
+                "allowed_principals": ["*"],
+                "allowed_actions": ["*"],
+                "resource_types": ["*"],
+                "required_attributes": {},
+            },
+        },
+    )
+    resource_resp = client.post(
+        "/resources",
+        headers=headers,
+        json={
+            "name": "Test",
+            "type": "db",
+            "attributes": {},
+            "source_system": "manual",
+        },
+    )
+    evaluation_resp = client.post(
+        "/evaluations",
+        headers=headers,
+        json={
+            "policy_id": policy_resp.json()["id"],
+            "principal": "p",
+            "action": "a",
+            "resource_id": resource_resp.json()["id"],
+        },
+    )
+    assert evaluation_resp.status_code == 200
+
+    retain_resp = client.post("/evidence/retain", headers=headers)
+    assert retain_resp.status_code == 200
+
+
+def test_opa_export():
+    _, api_key, _ = _create_org_and_key(scopes=["policies:read", "policies:write"])
+    headers = {"X-API-Key": api_key}
+
+    policy_resp = client.post(
+        "/policies",
+        headers=headers,
+        json={
+            "name": "Allow read",
+            "rule": {
+                "allowed_principals": ["user"],
+                "allowed_actions": ["read"],
+                "resource_types": ["file"],
+                "required_attributes": {},
+            },
+        },
+    )
+    policy_id = policy_resp.json()["id"]
+
+    export_resp = client.get(f"/policies/{policy_id}/opa", headers=headers)
+    assert export_resp.status_code == 200
+    assert export_resp.json()["policy_id"] == policy_id
