@@ -12,6 +12,7 @@ uvicorn src.app:app --reload
 ```
 
 Open http://127.0.0.1:8000/docs for the API UI.
+Open http://127.0.0.1:8000/admin for the admin dashboard.
 
 ## Quick Start (Docker + Postgres)
 
@@ -20,6 +21,7 @@ docker compose up --build
 ```
 
 Open http://127.0.0.1:8000/docs for the API UI.
+Open http://127.0.0.1:8000/admin for the admin dashboard.
 
 ## Auth Flow
 1. Create org: `POST /orgs`

@@ -184,6 +184,193 @@ def root() -> str:
 """
 
 
+@app.get("/admin", response_class=HTMLResponse)
+def admin() -> str:
+    return """
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unified Governance Admin</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #0b1220;
+        color: #e2e8f0;
+        margin: 0;
+      }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 60px; }
+      h1 { font-size: 28px; margin-bottom: 8px; }
+      .card {
+        background: #0f172a;
+        border: 1px solid #1f2a44;
+        border-radius: 14px;
+        padding: 18px;
+        margin-bottom: 16px;
+      }
+      label { display: block; font-size: 12px; margin-bottom: 6px; color: #94a3b8; }
+      input, textarea, select {
+        width: 100%;
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid #1f2a44;
+        background: #0b1220;
+        color: #e2e8f0;
+      }
+      button {
+        background: #38bdf8;
+        color: #0b1220;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+      pre { background: #0b1220; padding: 12px; border-radius: 10px; overflow: auto; }
+      .muted { color: #94a3b8; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Unified Governance Admin</h1>
+      <p class="muted">Use your API key to manage policies, resources, and evaluations.</p>
+
+      <div class="card">
+        <label>API Key</label>
+        <input id="apiKey" placeholder="X-API-Key" />
+        <button onclick="saveKey()">Save Key</button>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h3>Create Policy</h3>
+          <label>Name</label>
+          <input id="policyName" />
+          <label>Rule (JSON)</label>
+          <textarea id="policyRule" rows="6">{\"allowed_principals\":[\"user\"],\"allowed_actions\":[\"read\"],\"resource_types\":[\"file\"],\"required_attributes\":{}}</textarea>
+          <button onclick="createPolicy()">Create Policy</button>
+        </div>
+
+        <div class="card">
+          <h3>Create Resource</h3>
+          <label>Name</label>
+          <input id="resourceName" />
+          <label>Type</label>
+          <input id="resourceType" value="file" />
+          <label>Attributes (JSON)</label>
+          <textarea id="resourceAttrs" rows="4">{\"sensitivity\":\"high\"}</textarea>
+          <button onclick="createResource()">Create Resource</button>
+        </div>
+
+        <div class="card">
+          <h3>Evaluate</h3>
+          <label>Policy ID</label>
+          <input id="evalPolicy" />
+          <label>Principal</label>
+          <input id="evalPrincipal" value="user" />
+          <label>Action</label>
+          <input id="evalAction" value="read" />
+          <label>Resource ID</label>
+          <input id="evalResource" />
+          <button onclick="evaluateAccess()">Evaluate</button>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h3>Policies</h3>
+          <button onclick="loadPolicies()">Refresh</button>
+          <pre id="policiesOut">[]</pre>
+        </div>
+        <div class="card">
+          <h3>Resources</h3>
+          <button onclick="loadResources()">Refresh</button>
+          <pre id="resourcesOut">[]</pre>
+        </div>
+        <div class="card">
+          <h3>Evidence</h3>
+          <button onclick="verifyEvidence()">Verify Chain</button>
+          <button onclick="exportEvidence()">Export JSON</button>
+          <pre id="evidenceOut">{}</pre>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const apiKeyInput = document.getElementById('apiKey');
+      apiKeyInput.value = localStorage.getItem('ug_api_key') || '';
+
+      function saveKey() {
+        localStorage.setItem('ug_api_key', apiKeyInput.value.trim());
+        alert('Saved');
+      }
+
+      async function api(path, method = 'GET', body) {
+        const key = localStorage.getItem('ug_api_key') || '';
+        const res = await fetch(path, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': key
+          },
+          body: body ? JSON.stringify(body) : undefined
+        });
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        const text = await res.text();
+        return text ? JSON.parse(text) : null;
+      }
+
+      async function loadPolicies() {
+        const data = await api('/policies');
+        document.getElementById('policiesOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function loadResources() {
+        const data = await api('/resources');
+        document.getElementById('resourcesOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function createPolicy() {
+        const name = document.getElementById('policyName').value;
+        const rule = JSON.parse(document.getElementById('policyRule').value);
+        await api('/policies', 'POST', { name, rule });
+        await loadPolicies();
+      }
+
+      async function createResource() {
+        const name = document.getElementById('resourceName').value;
+        const type = document.getElementById('resourceType').value;
+        const attributes = JSON.parse(document.getElementById('resourceAttrs').value);
+        await api('/resources', 'POST', { name, type, attributes });
+        await loadResources();
+      }
+
+      async function evaluateAccess() {
+        const policy_id = document.getElementById('evalPolicy').value;
+        const principal = document.getElementById('evalPrincipal').value;
+        const action = document.getElementById('evalAction').value;
+        const resource_id = document.getElementById('evalResource').value;
+        const data = await api('/evaluations', 'POST', { policy_id, principal, action, resource_id });
+        document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function verifyEvidence() {
+        const data = await api('/evidence/verify');
+        document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function exportEvidence() {
+        const data = await api('/evidence/export');
+        document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
+      }
+    </script>
+  </body>
+</html>
+"""
+
+
 @app.post("/orgs", response_model=Org)
 def create_org(payload: OrgCreate) -> Org:
     org_id = str(uuid.uuid4())
