@@ -237,6 +237,27 @@ def init_db() -> None:
                 last_hash TEXT,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                url TEXT NOT NULL,
+                secret TEXT,
+                enabled INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS webhook_deliveries (
+                id TEXT PRIMARY KEY,
+                webhook_id TEXT NOT NULL,
+                status_code INTEGER,
+                response_body TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS decision_logs (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         _add_column_if_missing(conn, "policies", "org_id", "TEXT")

@@ -41,15 +41,20 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `POST /orgs/{org_id}/sso`
 - `POST /orgs/{org_id}/usage`
 - `POST /policies`
+- `POST /policies/generate`
 - `GET /policies/{policy_id}/opa`
 - `POST /resources`
 - `POST /evaluations`
 - `GET /evidence/verify`
 - `POST /evidence/retain`
 - `GET /evidence/export` (JSON) or `?format=csv` (CSV + signature header)
+- `GET /evidence/search`
 - `GET /connectors`
 - `POST /scim/Users`
 - `GET /scim/Users`
+- `POST /webhooks`
+- `POST /webhooks/{id}/test`
+- `GET /decision-logs/export`
 
 ## SDKs
 - Python: `sdk/python`
@@ -64,6 +69,9 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 
 ## Trust Badge
 - `docs/TRUST_BADGE.md`
+
+## Operational Intelligence
+- `docs/OPERATIONAL_INTELLIGENCE.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`

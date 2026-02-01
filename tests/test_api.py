@@ -344,3 +344,21 @@ def test_evidence_search():
     search = client.get("/evidence/search", headers=headers)
     assert search.status_code == 200
     assert "evaluations" in search.json()
+
+
+def test_generate_policy():
+    _, api_key, _ = _create_org_and_key(scopes=["policies:write"])
+    headers = {"X-API-Key": api_key}
+    resp = client.post("/policies/generate", headers=headers, json={"text": "Marketing cannot use GPT-4 with sensitive data"})
+    assert resp.status_code == 200
+    assert resp.json()["rule"]["required_attributes"].get("model_provider") in ["openai", None]
+
+
+def test_webhook_create_and_test():
+    _, api_key, _ = _create_org_and_key(scopes=["orgs:write"])
+    headers = {"X-API-Key": api_key}
+    wh = client.post("/webhooks", headers=headers, json={"url": "https://example.com/webhook", "enabled": True})
+    assert wh.status_code == 200
+    wh_id = wh.json()["id"]
+    test = client.post(f"/webhooks/{wh_id}/test", headers=headers)
+    assert test.status_code == 200

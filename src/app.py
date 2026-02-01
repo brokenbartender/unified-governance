@@ -10,11 +10,13 @@ import uuid
 from datetime import datetime, timedelta
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.responses import HTMLResponse
+import urllib.request
 
 from .connectors.base import get_connector, list_connectors
 from .connectors import google_drive  # noqa: F401
 from .connectors import snowflake  # noqa: F401
 from .db import get_conn, init_db, now_iso, parse_json_field, row_to_dict, dump_json_field
+from .llm import generate_policy_from_text
 from .policy_engine import evaluate_policy
 from .schemas import (
     ApiKey,
@@ -57,6 +59,10 @@ from .schemas import (
     User,
     UserCreate,
     EvidenceSearchResult,
+    Webhook,
+    WebhookCreate,
+    WebhookDelivery,
+    DecisionLogExport,
 )
 from .settings import settings
 
@@ -80,6 +86,22 @@ def _hash_record(payload: dict, prev_hash: str | None) -> str:
 
 def _hash_content(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _deliver_webhook(url: str, secret: str | None, payload: dict) -> tuple[int | None, str]:
+    if not settings.enable_webhook_delivery:
+        return None, "delivery disabled"
+    data = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Webhook-Secret"] = secret
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+            return resp.status, body
+    except Exception as exc:  # pragma: no cover - network dependent
+        return 0, str(exc)
 
 
 def _get_key_row(raw_key: str | None) -> dict:
@@ -308,6 +330,9 @@ def admin() -> str:
             <h3>Create Policy</h3>
             <label>Name</label>
             <input id="policyName" />
+            <label>Natural Language</label>
+            <textarea id="policyPrompt" rows="3">Users in Marketing cannot use GPT-4 for sensitive data</textarea>
+            <button onclick="generatePolicy()">Generate Policy JSON</button>
             <label>Rule (JSON)</label>
             <textarea id="policyRule" rows="6">{\"allowed_principals\":[\"user\"],\"allowed_actions\":[\"read\"],\"resource_types\":[\"file\"],\"required_attributes\":{\"model_type\":\"llm\"}}</textarea>
             <button onclick="createPolicy()">Create Policy</button>
@@ -447,6 +472,13 @@ def admin() -> str:
         const name = document.getElementById('policyName').value;
         const rule = JSON.parse(document.getElementById('policyRule').value);
         await api('/policies', 'POST', { name, rule });
+      }
+
+      async function generatePolicy() {
+        const text = document.getElementById('policyPrompt').value;
+        const data = await api('/policies/generate', 'POST', { text });
+        document.getElementById('policyName').value = data.name || 'Generated Policy';
+        document.getElementById('policyRule').value = JSON.stringify(data.rule, null, 2);
       }
 
       async function createResource() {
@@ -1195,6 +1227,13 @@ def generate_policy(
 ) -> PolicyCreate:
     _ = key_row
     text = (prompt.get("text") or "").lower()
+    llm = generate_policy_from_text(text)
+    if llm and "rule" in llm:
+        return PolicyCreate(
+            name=llm.get("name") or prompt.get("name") or "Generated Policy",
+            description=llm.get("description") or prompt.get("description"),
+            rule=PolicyRule(**llm["rule"]),
+        )
     rule = {
         "allowed_principals": ["*"],
         "allowed_actions": ["*"],
@@ -1372,6 +1411,10 @@ def evaluate(
                 prev_hash,
                 record_hash,
             ),
+        )
+        conn.execute(
+            "INSERT INTO decision_logs (id, org_id, payload_json, created_at) VALUES (?, ?, ?, ?)",
+            (str(uuid.uuid4()), org_id, dump_json_field(payload_hash), created_at),
         )
 
     return Evaluation(
@@ -1622,6 +1665,105 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
 def list_connector_metadata(key_row: dict = Depends(_require_org_and_scopes(["connectors:read"]))) -> list[dict]:
     _ = key_row
     return [meta.__dict__ for meta in list_connectors()]
+
+
+@app.post("/webhooks", response_model=Webhook)
+def create_webhook(
+    payload: WebhookCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> Webhook:
+    org_id = key_row["org_id"]
+    webhook_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO webhooks (id, org_id, url, secret, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (webhook_id, org_id, payload.url, payload.secret, 1 if payload.enabled else 0, created_at),
+        )
+    return Webhook(
+        id=webhook_id,
+        org_id=org_id,
+        url=payload.url,
+        secret=payload.secret,
+        enabled=payload.enabled,
+        created_at=created_at,
+    )
+
+
+@app.get("/webhooks", response_model=list[Webhook])
+def list_webhooks(key_row: dict = Depends(_require_org_and_scopes(["orgs:read"]))) -> list[Webhook]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM webhooks WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    return [
+        Webhook(
+            id=row["id"],
+            org_id=row["org_id"],
+            url=row["url"],
+            secret=row["secret"],
+            enabled=bool(row["enabled"]),
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+@app.post("/webhooks/{webhook_id}/test", response_model=WebhookDelivery)
+def test_webhook(
+    webhook_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> WebhookDelivery:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        webhook_row = conn.execute(
+            "SELECT * FROM webhooks WHERE id = ? AND org_id = ?",
+            (webhook_id, org_id),
+        ).fetchone()
+        log_row = conn.execute(
+            "SELECT * FROM decision_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT 1",
+            (org_id,),
+        ).fetchone()
+    if not webhook_row:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    payload = parse_json_field(log_row["payload_json"]) if log_row else {"message": "no logs"}
+    status_code, response_body = _deliver_webhook(
+        webhook_row["url"], webhook_row["secret"], payload
+    )
+    delivery_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, created_at) VALUES (?, ?, ?, ?, ?)",
+            (delivery_id, webhook_id, status_code, response_body, created_at),
+        )
+    return WebhookDelivery(
+        id=delivery_id,
+        webhook_id=webhook_id,
+        status_code=status_code,
+        response_body=response_body,
+        created_at=created_at,
+    )
+
+
+@app.get("/decision-logs/export", response_model=DecisionLogExport)
+def export_decision_logs(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> DecisionLogExport:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM decision_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT 1000",
+            (org_id,),
+        ).fetchall()
+    exported_at = now_iso()
+    return DecisionLogExport(
+        org_id=org_id,
+        exported_at=exported_at,
+        total=len(rows),
+    )
 
 
 @app.get("/orgs/{org_id}/usage", response_model=UsageSummary)

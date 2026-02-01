@@ -264,6 +264,35 @@ class EvidenceSearchResult(BaseModel):
     total: int
 
 
+class WebhookCreate(BaseModel):
+    url: str
+    secret: Optional[str] = None
+    enabled: bool = True
+
+
+class Webhook(BaseModel):
+    id: str
+    org_id: str
+    url: str
+    secret: Optional[str] = None
+    enabled: bool
+    created_at: str
+
+
+class WebhookDelivery(BaseModel):
+    id: str
+    webhook_id: str
+    status_code: Optional[int] = None
+    response_body: Optional[str] = None
+    created_at: str
+
+
+class DecisionLogExport(BaseModel):
+    org_id: str
+    exported_at: str
+    total: int
+
+
 class OpaPolicyExport(BaseModel):
     policy_id: str
     org_id: str
