@@ -349,7 +349,7 @@ def admin() -> str:
         <div class="card">
           <h3>Existing Keys</h3>
           <button onclick="listKeys()">Refresh</button>
-          <pre id="keysOut">[]</pre>
+          <div id="keysTable"></div>
         </div>
       </div>
 
@@ -368,12 +368,17 @@ def admin() -> str:
         <div class="card">
           <h3>Teams</h3>
           <button onclick="listTeams()">Refresh</button>
-          <pre id="teamsOut">[]</pre>
+          <div id="teamsTable"></div>
         </div>
         <div class="card">
           <h3>Roles</h3>
           <button onclick="listRoles()">Refresh</button>
-          <pre id="rolesOut">[]</pre>
+          <div id="rolesTable"></div>
+        </div>
+        <div class="card">
+          <h3>Team Memberships</h3>
+          <button onclick="listMemberships()">Refresh</button>
+          <div id="membershipsTable"></div>
         </div>
       </div>
 
@@ -465,18 +470,44 @@ def admin() -> str:
         const name = document.getElementById('keyName').value;
         const data = await api(`/orgs/${org}/keys`, 'POST', { name });
         document.getElementById('keyOut').textContent = JSON.stringify(data, null, 2);
+        await listKeys();
       }
 
       async function listKeys() {
         const org = localStorage.getItem('ug_org_id') || '';
         const data = await api(`/orgs/${org}/keys`);
-        document.getElementById('keysOut').textContent = JSON.stringify(data, null, 2);
+        const container = document.getElementById('keysTable');
+        if (!data || data.length === 0) {
+          container.innerHTML = '<p class="muted">No keys</p>';
+          return;
+        }
+        container.innerHTML = `<table><thead><tr><th>ID</th><th>Name</th><th>Scopes</th><th>Actions</th></tr></thead><tbody>${
+          data.map(k => `<tr><td>${k.id}</td><td>${k.name}</td><td>${(k.scopes||[]).join(', ')}</td><td>
+            <button onclick="rotateKey('${k.id}')">Rotate</button>
+            <button onclick="revokeKey('${k.id}')">Revoke</button>
+          </td></tr>`).join('')
+        }</tbody></table>`;
+      }
+
+      async function rotateKey(keyId) {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const data = await api(`/orgs/${org}/keys/${keyId}/rotate`, 'POST');
+        document.getElementById('keyOut').textContent = JSON.stringify(data, null, 2);
+        await listKeys();
+      }
+
+      async function revokeKey(keyId) {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const data = await api(`/orgs/${org}/keys/${keyId}/revoke`, 'POST');
+        document.getElementById('keyOut').textContent = JSON.stringify(data, null, 2);
+        await listKeys();
       }
 
       async function createTeam() {
         const org = localStorage.getItem('ug_org_id') || '';
         const name = document.getElementById('teamName').value;
         await api(`/orgs/${org}/teams`, 'POST', { name });
+        await listTeams();
       }
 
       async function createRole() {
@@ -484,18 +515,46 @@ def admin() -> str:
         const name = document.getElementById('roleName').value;
         const permissions = JSON.parse(document.getElementById('rolePerms').value || '[]');
         await api(`/orgs/${org}/roles`, 'POST', { name, permissions });
+        await listRoles();
       }
 
       async function listTeams() {
         const org = localStorage.getItem('ug_org_id') || '';
         const data = await api(`/orgs/${org}/teams`);
-        document.getElementById('teamsOut').textContent = JSON.stringify(data, null, 2);
+        const container = document.getElementById('teamsTable');
+        if (!data || data.length === 0) {
+          container.innerHTML = '<p class="muted">No teams</p>';
+          return;
+        }
+        container.innerHTML = `<table><thead><tr><th>ID</th><th>Name</th><th>Description</th></tr></thead><tbody>${
+          data.map(t => `<tr><td>${t.id}</td><td>${t.name}</td><td>${t.description || ''}</td></tr>`).join('')
+        }</tbody></table>`;
       }
 
       async function listRoles() {
         const org = localStorage.getItem('ug_org_id') || '';
         const data = await api(`/orgs/${org}/roles`);
-        document.getElementById('rolesOut').textContent = JSON.stringify(data, null, 2);
+        const container = document.getElementById('rolesTable');
+        if (!data || data.length === 0) {
+          container.innerHTML = '<p class="muted">No roles</p>';
+          return;
+        }
+        container.innerHTML = `<table><thead><tr><th>ID</th><th>Name</th><th>Permissions</th></tr></thead><tbody>${
+          data.map(r => `<tr><td>${r.id}</td><td>${r.name}</td><td>${(r.permissions||[]).join(', ')}</td></tr>`).join('')
+        }</tbody></table>`;
+      }
+
+      async function listMemberships() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const data = await api(`/orgs/${org}/team-memberships`);
+        const container = document.getElementById('membershipsTable');
+        if (!data || data.length === 0) {
+          container.innerHTML = '<p class="muted">No memberships</p>';
+          return;
+        }
+        container.innerHTML = `<table><thead><tr><th>User</th><th>Team</th><th>Role</th></tr></thead><tbody>${
+          data.map(m => `<tr><td>${m.user_id}</td><td>${m.team_id}</td><td>${m.role_id}</td></tr>`).join('')
+        }</tbody></table>`;
       }
 
       async function verifyEvidence() {
