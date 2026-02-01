@@ -250,6 +250,9 @@ def init_db() -> None:
                 webhook_id TEXT NOT NULL,
                 status_code INTEGER,
                 response_body TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT,
+                success INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS decision_logs (
@@ -271,6 +274,9 @@ def init_db() -> None:
         _add_column_if_missing(conn, "evaluations", "prev_hash", "TEXT")
         _add_column_if_missing(conn, "evaluations", "record_hash", "TEXT")
         _add_column_if_missing(conn, "evidence_exports", "content_bytes", "INTEGER")
+        _add_column_if_missing(conn, "webhook_deliveries", "attempts", "INTEGER")
+        _add_column_if_missing(conn, "webhook_deliveries", "next_attempt_at", "TEXT")
+        _add_column_if_missing(conn, "webhook_deliveries", "success", "INTEGER")
 
 
 def now_iso() -> str:

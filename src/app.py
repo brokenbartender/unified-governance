@@ -11,10 +11,13 @@ from datetime import datetime, timedelta
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.responses import HTMLResponse
 import urllib.request
+import time
 
 from .connectors.base import get_connector, list_connectors
 from .connectors import google_drive  # noqa: F401
 from .connectors import snowflake  # noqa: F401
+from .connectors import okta  # noqa: F401
+from .connectors import aws_cloudtrail  # noqa: F401
 from .db import get_conn, init_db, now_iso, parse_json_field, row_to_dict, dump_json_field
 from .llm import generate_policy_from_text
 from .policy_engine import evaluate_policy
@@ -94,7 +97,8 @@ def _deliver_webhook(url: str, secret: str | None, payload: dict) -> tuple[int |
     data = json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if secret:
-        headers["X-Webhook-Secret"] = secret
+        signature = hashlib.sha256((secret + json.dumps(payload)).encode("utf-8")).hexdigest()
+        headers["X-Webhook-Signature"] = signature
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -102,6 +106,20 @@ def _deliver_webhook(url: str, secret: str | None, payload: dict) -> tuple[int |
             return resp.status, body
     except Exception as exc:  # pragma: no cover - network dependent
         return 0, str(exc)
+
+
+_rate_limiter: dict[str, list[float]] = {}
+
+
+def _rate_limit(org_id: str) -> None:
+    now = time.time()
+    window = 60
+    hits = _rate_limiter.get(org_id, [])
+    hits = [t for t in hits if now - t < window]
+    if len(hits) >= settings.rate_limit_per_min:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    hits.append(now)
+    _rate_limiter[org_id] = hits
 
 
 def _get_key_row(raw_key: str | None) -> dict:
@@ -139,6 +157,11 @@ def _require_org_and_scopes(scopes: list[str]):
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/v1/health")
+def v1_health() -> dict:
+    return health()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -416,7 +439,7 @@ def admin() -> str:
           <input id="evidencePolicy" />
           <label>Decision (optional)</label>
           <input id="evidenceDecision" placeholder="allow/deny" />
-          <button onclick="searchEvidence()">Search</button>
+          <button onclick="searchEvidence(0)">Search</button>
           <button onclick="verifyEvidence()">Verify Chain</button>
           <button onclick="exportEvidence()">Export JSON</button>
           <pre id="evidenceOut">{}</pre>
@@ -594,7 +617,7 @@ def admin() -> str:
         document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
       }
 
-      async function searchEvidence() {
+      async function searchEvidence(offset = 0) {
         const principal = document.getElementById('evidencePrincipal').value;
         const policyId = document.getElementById('evidencePolicy').value;
         const decision = document.getElementById('evidenceDecision').value;
@@ -602,6 +625,7 @@ def admin() -> str:
         if (principal) params.append('principal', principal);
         if (policyId) params.append('policy_id', policyId);
         if (decision) params.append('decision', decision);
+        params.append('offset', String(offset));
         const data = await api(`/evidence/search?${params.toString()}`);
         document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
       }
@@ -1139,6 +1163,14 @@ def create_policy(
     return Policy(id=policy_id, org_id=org_id, created_at=created_at, **payload.model_dump())
 
 
+@app.post("/v1/policies", response_model=Policy)
+def v1_create_policy(
+    payload: PolicyCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> Policy:
+    return create_policy(payload, key_row)
+
+
 @app.get("/policies", response_model=list[Policy])
 def list_policies(key_row: dict = Depends(_require_org_and_scopes(["policies:read"]))) -> list[Policy]:
     org_id = key_row["org_id"]
@@ -1282,6 +1314,14 @@ def create_resource(
     return Resource(id=resource_id, org_id=org_id, created_at=created_at, **payload.model_dump())
 
 
+@app.post("/v1/resources", response_model=Resource)
+def v1_create_resource(
+    payload: ResourceCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["resources:write"])),
+) -> Resource:
+    return create_resource(payload, key_row)
+
+
 @app.get("/resources", response_model=list[Resource])
 def list_resources(key_row: dict = Depends(_require_org_and_scopes(["resources:read"]))) -> list[Resource]:
     org_id = key_row["org_id"]
@@ -1342,6 +1382,7 @@ def evaluate(
     key_row: dict = Depends(_require_org_and_scopes(["evaluations:write"])),
 ) -> Evaluation:
     org_id = key_row["org_id"]
+    _rate_limit(org_id)
     with get_conn() as conn:
         policy_row = conn.execute(
             "SELECT * FROM policies WHERE id = ? AND org_id = ?",
@@ -1426,10 +1467,19 @@ def evaluate(
         resource_id=payload.resource_id,
         decision=decision,
         rationale=rationale,
+        rule_snapshot=policy_rule.model_dump(),
         created_at=created_at,
         prev_hash=prev_hash,
         record_hash=record_hash,
     )
+
+
+@app.post("/v1/evaluations", response_model=Evaluation)
+def v1_evaluate(
+    payload: EvaluationRequest,
+    key_row: dict = Depends(_require_org_and_scopes(["evaluations:write"])),
+) -> Evaluation:
+    return evaluate(payload, key_row)
 
 
 @app.post("/playground/evaluate", response_model=list[PlaygroundDecision])
@@ -1522,6 +1572,7 @@ def evidence_search(
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
 ) -> EvidenceSearchResult:
     org_id = key_row["org_id"]
+    _rate_limit(org_id)
     conditions = ["org_id = ?"]
     params: list = [org_id]
     if principal:
@@ -1548,6 +1599,18 @@ def evidence_search(
         evaluations=[Evaluation(**row_to_dict(row)) for row in rows],
         total=total_count,
     )
+
+
+@app.get("/v1/evidence/search", response_model=EvidenceSearchResult)
+def v1_evidence_search(
+    principal: str | None = None,
+    policy_id: str | None = None,
+    decision: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> EvidenceSearchResult:
+    return evidence_search(principal, policy_id, decision, limit, offset, key_row)
 
 
 @app.get("/evidence/verify", response_model=EvidenceVerifyResult)
@@ -1597,6 +1660,7 @@ def verify_evidence_chain(
 @app.get("/evidence/export", response_model=EvidenceExport)
 def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_and_scopes(["evidence:read"]))):
     org_id = key_row["org_id"]
+    _rate_limit(org_id)
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT * FROM evaluations WHERE org_id = ? ORDER BY created_at DESC",
@@ -1660,6 +1724,11 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
         signature=signature,
         evaluations=evaluations,
     )
+
+
+@app.get("/v1/evidence/export", response_model=EvidenceExport)
+def v1_export_evidence(format: str = "json", key_row: dict = Depends(_require_org_and_scopes(["evidence:read"]))):
+    return export_evidence(format, key_row)
 
 
 @app.get("/connectors")
@@ -1735,16 +1804,83 @@ def test_webhook(
     )
     delivery_id = str(uuid.uuid4())
     created_at = now_iso()
+    success = 1 if status_code and status_code < 300 else 0
+    attempts = 1
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, created_at) VALUES (?, ?, ?, ?, ?)",
-            (delivery_id, webhook_id, status_code, response_body, created_at),
+            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, attempts, success, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (delivery_id, webhook_id, status_code, response_body, attempts, success, created_at),
         )
     return WebhookDelivery(
         id=delivery_id,
         webhook_id=webhook_id,
         status_code=status_code,
         response_body=response_body,
+        attempts=attempts,
+        success=bool(success),
+        created_at=created_at,
+    )
+
+
+@app.get("/webhooks/{webhook_id}/deliveries", response_model=list[WebhookDelivery])
+def list_webhook_deliveries(
+    webhook_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> list[WebhookDelivery]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        wh = conn.execute(
+            "SELECT * FROM webhooks WHERE id = ? AND org_id = ?",
+            (webhook_id, org_id),
+        ).fetchone()
+        if not wh:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+        rows = conn.execute(
+            "SELECT * FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC",
+            (webhook_id,),
+        ).fetchall()
+    return [WebhookDelivery(**row_to_dict(row)) for row in rows]
+
+
+@app.post("/webhooks/{webhook_id}/retry", response_model=WebhookDelivery)
+def retry_webhook(
+    webhook_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> WebhookDelivery:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        webhook_row = conn.execute(
+            "SELECT * FROM webhooks WHERE id = ? AND org_id = ?",
+            (webhook_id, org_id),
+        ).fetchone()
+        log_row = conn.execute(
+            "SELECT * FROM decision_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT 1",
+            (org_id,),
+        ).fetchone()
+    if not webhook_row:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    payload = parse_json_field(log_row["payload_json"]) if log_row else {"message": "no logs"}
+    status_code, response_body = _deliver_webhook(
+        webhook_row["url"], webhook_row["secret"], payload
+    )
+    delivery_id = str(uuid.uuid4())
+    created_at = now_iso()
+    attempts = 1
+    success = 1 if status_code and status_code < 300 else 0
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO webhook_deliveries (id, webhook_id, status_code, response_body, attempts, success, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (delivery_id, webhook_id, status_code, response_body, attempts, success, created_at),
+        )
+    return WebhookDelivery(
+        id=delivery_id,
+        webhook_id=webhook_id,
+        status_code=status_code,
+        response_body=response_body,
+        attempts=attempts,
+        success=bool(success),
         created_at=created_at,
     )
 
@@ -1769,6 +1905,31 @@ def export_decision_logs(
             writer.writerow(row_to_dict(row))
         return Response(content=serialized.getvalue(), media_type="text/csv")
     return DecisionLogExport(org_id=org_id, exported_at=exported_at, total=len(rows))
+
+
+@app.get("/decision-logs/stream")
+def stream_decision_logs(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+):
+    org_id = key_row["org_id"]
+
+    def generator():
+        last_sent = None
+        for _ in range(5):
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT * FROM decision_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (org_id,),
+                ).fetchone()
+            if row:
+                payload = row_to_dict(row)
+                if payload.get("id") != last_sent:
+                    last_sent = payload.get("id")
+                    yield f"data: {json.dumps(payload)}\n\n"
+            time.sleep(1)
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(generator(), media_type="text/event-stream")
 
 
 @app.get("/orgs/{org_id}/usage", response_model=UsageSummary)

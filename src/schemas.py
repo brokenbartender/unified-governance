@@ -206,6 +206,7 @@ class Evaluation(BaseModel):
     resource_id: str
     decision: str
     rationale: Optional[str] = None
+    rule_snapshot: Optional[Dict[str, Any]] = None
     created_at: str
     prev_hash: Optional[str] = None
     record_hash: Optional[str] = None
@@ -284,6 +285,9 @@ class WebhookDelivery(BaseModel):
     webhook_id: str
     status_code: Optional[int] = None
     response_body: Optional[str] = None
+    attempts: int = 0
+    next_attempt_at: Optional[str] = None
+    success: bool = False
     created_at: str
 
 

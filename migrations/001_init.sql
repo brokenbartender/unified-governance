@@ -1,0 +1,2 @@
+﻿-- 001_init.sql
+-- This is a placeholder migration file for schema versioning.
