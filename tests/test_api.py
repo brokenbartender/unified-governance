@@ -45,6 +45,8 @@ def test_policy_resource_evaluation_flow():
             "name": "Payroll DB",
             "type": "payroll",
             "attributes": {"sensitivity": "high"},
+            "source_system": "snowflake",
+            "external_id": "table-abc",
         },
     )
     assert resource_resp.status_code == 200

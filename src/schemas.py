@@ -52,6 +52,8 @@ class ResourceCreate(BaseModel):
     name: str
     type: str
     attributes: Dict[str, Any] = Field(default_factory=dict)
+    source_system: str = "manual"
+    external_id: Optional[str] = None
 
 
 class Resource(ResourceCreate):

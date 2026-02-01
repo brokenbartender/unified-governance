@@ -186,13 +186,15 @@ def create_resource(payload: ResourceCreate, org_id: str = Depends(require_org_i
     created_at = now_iso()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO resources (id, org_id, name, type, attributes_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO resources (id, org_id, name, type, attributes_json, source_system, external_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 resource_id,
                 org_id,
                 payload.name,
                 payload.type,
                 dump_json_field(payload.attributes),
+                payload.source_system,
+                payload.external_id,
                 created_at,
             ),
         )
@@ -216,6 +218,8 @@ def list_resources(org_id: str = Depends(require_org_id)) -> list[Resource]:
                 name=data["name"],
                 type=data["type"],
                 attributes=parse_json_field(data["attributes_json"]),
+                source_system=data.get("source_system") or "manual",
+                external_id=data.get("external_id"),
                 created_at=data["created_at"],
             )
         )
@@ -238,6 +242,8 @@ def get_resource(resource_id: str, org_id: str = Depends(require_org_id)) -> Res
         name=data["name"],
         type=data["type"],
         attributes=parse_json_field(data["attributes_json"]),
+        source_system=data.get("source_system") or "manual",
+        external_id=data.get("external_id"),
         created_at=data["created_at"],
     )
 
@@ -268,6 +274,8 @@ def evaluate(payload: EvaluationRequest, org_id: str = Depends(require_org_id)) 
         name=resource_data["name"],
         type=resource_data["type"],
         attributes=parse_json_field(resource_data["attributes_json"]),
+        source_system=resource_data.get("source_system") or "manual",
+        external_id=resource_data.get("external_id"),
         created_at=resource_data["created_at"],
     )
 

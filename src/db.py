@@ -75,6 +75,8 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
                 attributes_json TEXT NOT NULL,
+                source_system TEXT NOT NULL,
+                external_id TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS evaluations (
@@ -95,6 +97,8 @@ def init_db() -> None:
         _add_column_if_missing(conn, "policies", "org_id", "TEXT")
         _add_column_if_missing(conn, "resources", "org_id", "TEXT")
         _add_column_if_missing(conn, "evaluations", "org_id", "TEXT")
+        _add_column_if_missing(conn, "resources", "source_system", "TEXT")
+        _add_column_if_missing(conn, "resources", "external_id", "TEXT")
 
 
 def now_iso() -> str:

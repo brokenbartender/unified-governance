@@ -15,3 +15,4 @@ Provide a simple pattern for adding connector metadata and sample resources.
 ## Next Steps
 - Add real credentials and ingestion
 - Add webhook or polling support
+- Add sync loop that uses `source_system` + `external_id`

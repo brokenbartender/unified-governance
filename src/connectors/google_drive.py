@@ -23,6 +23,8 @@ class GoogleDriveConnector(ConnectorBase):
                     "shared_with": ["board@example.com"],
                     "owner": "finance",
                 },
+                "source_system": "google-drive",
+                "external_id": "drive-file-123",
             }
         ]
 

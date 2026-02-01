@@ -23,6 +23,8 @@ class SnowflakeConnector(ConnectorBase):
                     "sensitivity": "high",
                     "owner": "data-platform",
                 },
+                "source_system": "snowflake",
+                "external_id": "snowflake-table-prod_customers",
             }
         ]
 
