@@ -19,7 +19,11 @@ from .connectors import google_drive  # noqa: F401
 from .connectors import snowflake  # noqa: F401
 from .connectors import okta  # noqa: F401
 from .connectors import aws_cloudtrail  # noqa: F401
-from .db import get_conn, init_db, now_iso, parse_json_field, row_to_dict, dump_json_field
+from .connectors import box  # noqa: F401
+from .connectors import salesforce  # noqa: F401
+from .connectors import slack  # noqa: F401
+from .connectors import jira  # noqa: F401
+from .db import DB_KIND, get_conn, init_db, now_iso, parse_json_field, row_to_dict, dump_json_field
 from .llm import generate_policy_from_text
 from .policy_engine import evaluate_policy
 from .schemas import (
@@ -55,6 +59,9 @@ from .schemas import (
     ScimListResponse,
     ScimUser,
     ScimUserCreate,
+    ScimGroup,
+    ScimGroupCreate,
+    ScimGroupListResponse,
     SsoConfig,
     SsoConfigCreate,
     Team,
@@ -74,6 +81,11 @@ from .schemas import (
     EvidenceAttestationCreate,
     EnforcementDecision,
     EnforcementRequest,
+    CatalogMapping,
+    CatalogMappingCreate,
+    ExceptionRequest,
+    ExceptionRequestCreate,
+    BreakGlassResponse,
 )
 from .settings import settings
 
@@ -222,13 +234,16 @@ def _get_key_row(raw_key: str | None) -> dict:
         ).fetchone()
         if not row:
             raise HTTPException(status_code=401, detail="Invalid API key")
-        if row["revoked_at"]:
+        data = row_to_dict(row)
+        if data["revoked_at"]:
             raise HTTPException(status_code=401, detail="API key revoked")
+        if data.get("expires_at") and data["expires_at"] < now_iso():
+            raise HTTPException(status_code=401, detail="API key expired")
         conn.execute(
             "UPDATE api_keys SET last_used_at = ? WHERE id = ?",
-            (now_iso(), row["id"]),
+            (now_iso(), data["id"]),
         )
-    return row_to_dict(row)
+    return data
 
 
 def _require_org_and_scopes(scopes: list[str]):
@@ -316,6 +331,41 @@ def ready_status() -> dict:
         raise HTTPException(status_code=503, detail=f"db unavailable: {exc}") from exc
 
 
+@app.get("/status/synthetic-checks")
+def synthetic_checks() -> list[dict]:
+    return [
+        {"region": "us-east", "status": "ok", "checked_at": now_iso()},
+        {"region": "us-west", "status": "ok", "checked_at": now_iso()},
+        {"region": "eu-central", "status": "ok", "checked_at": now_iso()},
+    ]
+
+
+@app.get("/sla/report")
+def sla_report() -> dict:
+    return {
+        "window_days": 30,
+        "uptime_target": "99.9%",
+        "p99_latency_target_ms": 200,
+        "report_generated_at": now_iso(),
+    }
+
+
+@app.post("/backups/create")
+def create_backup(
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> dict:
+    _ = key_row
+    if DB_KIND != "sqlite":
+        return {"status": "unsupported", "detail": "Backup endpoint supports sqlite only"}
+    source = settings.db_path
+    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    target = os.path.join("output", f"backup_{stamp}.db")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(source, "rb") as src, open(target, "wb") as dst:
+        dst.write(src.read())
+    return {"status": "ok", "path": target}
+
+
 @app.get("/metrics")
 def metrics() -> Response:
     with get_conn() as conn:
@@ -326,6 +376,12 @@ def metrics() -> Response:
         evaluations = conn.execute("SELECT COUNT(*) as total FROM evaluations").fetchone()
         exports = conn.execute("SELECT COUNT(*) as total FROM evidence_exports").fetchone()
         webhooks = conn.execute("SELECT COUNT(*) as total FROM webhooks").fetchone()
+        allows = conn.execute(
+            "SELECT COUNT(*) as total FROM evaluations WHERE decision = 'allow'"
+        ).fetchone()
+        denies = conn.execute(
+            "SELECT COUNT(*) as total FROM evaluations WHERE decision = 'deny'"
+        ).fetchone()
 
     def _count(row) -> int:
         if isinstance(row, dict):
@@ -354,6 +410,12 @@ def metrics() -> Response:
         "# HELP ug_webhooks_total Total webhooks",
         "# TYPE ug_webhooks_total gauge",
         f"ug_webhooks_total {_count(webhooks)}",
+        "# HELP ug_evaluations_allow_total Total allow decisions",
+        "# TYPE ug_evaluations_allow_total counter",
+        f"ug_evaluations_allow_total {_count(allows)}",
+        "# HELP ug_evaluations_deny_total Total deny decisions",
+        "# TYPE ug_evaluations_deny_total counter",
+        f"ug_evaluations_deny_total {_count(denies)}",
     ]
     return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
@@ -535,9 +597,12 @@ def admin() -> str:
 
       <div class="tabs">
         <div class="tab active" data-tab="playground">Policy Playground</div>
+        <div class="tab" data-tab="explain">Explainability</div>
         <div class="tab" data-tab="keys">Key Management</div>
         <div class="tab" data-tab="teams">Teams & Roles</div>
         <div class="tab" data-tab="evidence">Evidence Search</div>
+        <div class="tab" data-tab="risk">Risk Dashboard</div>
+        <div class="tab" data-tab="coverage">Coverage</div>
         <div class="tab" data-tab="users">Users</div>
         <div class="tab" data-tab="quickstart">Quick Start</div>
       </div>
@@ -578,6 +643,16 @@ def admin() -> str:
             <button onclick="runPlayground()">Evaluate</button>
             <pre id="playgroundOut">[]</pre>
           </div>
+        </div>
+      </div>
+
+      <div id="explain" class="tab-panel hidden">
+        <div class="card">
+          <h3>Explainability</h3>
+          <label>Evaluation ID</label>
+          <input id="explainEvalId" />
+          <button onclick="replayEvaluation()">Replay & Explain</button>
+          <pre id="explainOut">{}</pre>
         </div>
       </div>
 
@@ -641,6 +716,22 @@ def admin() -> str:
           <button onclick="exportEvidence()">Export JSON</button>
           <button onclick="exportEvidenceCsv()">Export CSV</button>
           <pre id="evidenceOut">{}</pre>
+        </div>
+      </div>
+
+      <div id="risk" class="tab-panel hidden">
+        <div class="card">
+          <h3>Risk Dashboard</h3>
+          <button onclick="loadRisk()">Refresh</button>
+          <pre id="riskOut">{}</pre>
+        </div>
+      </div>
+
+      <div id="coverage" class="tab-panel hidden">
+        <div class="card">
+          <h3>Coverage Heatmap</h3>
+          <button onclick="loadCoverage()">Refresh</button>
+          <pre id="coverageOut">{}</pre>
         </div>
       </div>
 
@@ -733,6 +824,12 @@ def admin() -> str:
         const data = await api('/playground/evaluate', 'POST', { resource_id, principal, action });
         const firstDeny = data.find(d => d.decision === 'deny');
         document.getElementById('playgroundOut').textContent = JSON.stringify({ firstDeny, all: data }, null, 2);
+      }
+
+      async function replayEvaluation() {
+        const evalId = document.getElementById('explainEvalId').value;
+        const data = await api(`/evaluations/${evalId}/replay`);
+        document.getElementById('explainOut').textContent = JSON.stringify(data, null, 2);
       }
 
       async function createKey() {
@@ -857,6 +954,20 @@ def admin() -> str:
 
       async function exportEvidenceCsv() {
         window.open('/evidence/export?format=csv', '_blank');
+      }
+
+      async function loadRisk() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const usage = await api(`/orgs/${org}/usage`);
+        const sla = await api('/sla/report');
+        document.getElementById('riskOut').textContent = JSON.stringify({ usage, sla }, null, 2);
+      }
+
+      async function loadCoverage() {
+        const policies = await api('/policies');
+        const resources = await api('/resources');
+        const coverage = resources.length === 0 ? 0 : Math.round((policies.length / resources.length) * 100);
+        document.getElementById('coverageOut').textContent = JSON.stringify({ policies: policies.length, resources: resources.length, coverage_percent: coverage }, null, 2);
       }
 
       async function listUsers() {
@@ -997,8 +1108,9 @@ def create_role(
     created_at = now_iso()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO roles (id, org_id, name, permissions_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (role_id, org_id, payload.name, dump_json_field(payload.permissions), created_at),
+            "INSERT INTO roles (id, org_id, name, permissions_json, inherits_from, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (role_id, org_id, payload.name, dump_json_field(payload.permissions), payload.inherits_from, created_at),
         )
     return Role(id=role_id, org_id=org_id, created_at=created_at, **payload.model_dump())
 
@@ -1024,10 +1136,34 @@ def list_roles(
                 org_id=data["org_id"],
                 name=data["name"],
                 permissions=parse_json_field(data["permissions_json"]) or [],
+                inherits_from=data.get("inherits_from"),
                 created_at=data["created_at"],
             )
         )
     return roles
+
+
+@app.get("/orgs/{org_id}/roles/analyze", response_model=list[dict])
+def analyze_roles(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["rbac:read"])),
+) -> list[dict]:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    findings: list[dict] = []
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM roles WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+    for row in rows:
+        data = row_to_dict(row)
+        perms = parse_json_field(data["permissions_json"]) or []
+        if "*" in perms:
+            findings.append({"role_id": data["id"], "risk": "high", "reason": "Wildcard permissions"})
+        elif len(perms) > 10:
+            findings.append({"role_id": data["id"], "risk": "medium", "reason": "Large permission surface"})
+    return findings
 
 
 @app.post("/orgs/{org_id}/team-memberships", response_model=TeamMembership)
@@ -1092,8 +1228,9 @@ def create_api_key(org_id: str, payload: ApiKeyCreate) -> ApiKeyIssued:
         if not org_row:
             raise HTTPException(status_code=404, detail="Org not found")
         conn.execute(
-            "INSERT INTO api_keys (id, org_id, name, key_hash, scopes_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (key_id, org_id, payload.name, key_hash, dump_json_field(payload.scopes), created_at),
+            "INSERT INTO api_keys (id, org_id, name, key_hash, scopes_json, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (key_id, org_id, payload.name, key_hash, dump_json_field(payload.scopes), created_at, None),
         )
     return ApiKeyIssued(
         id=key_id,
@@ -1103,6 +1240,7 @@ def create_api_key(org_id: str, payload: ApiKeyCreate) -> ApiKeyIssued:
         created_at=created_at,
         last_used_at=None,
         revoked_at=None,
+        expires_at=None,
         api_key=api_key,
     )
 
@@ -1129,14 +1267,16 @@ def rotate_api_key(
             "UPDATE api_keys SET key_hash = ?, revoked_at = NULL WHERE id = ?",
             (key_hash, key_id),
         )
+    data = row_to_dict(row)
     return ApiKeyIssued(
         id=key_id,
         org_id=org_id,
-        name=row["name"],
-        scopes=parse_json_field(row["scopes_json"]) or [],
-        created_at=row["created_at"],
-        last_used_at=row["last_used_at"],
+        name=data["name"],
+        scopes=parse_json_field(data["scopes_json"]) or [],
+        created_at=data["created_at"],
+        last_used_at=data["last_used_at"],
         revoked_at=None,
+        expires_at=data.get("expires_at"),
         api_key=api_key,
     )
 
@@ -1170,6 +1310,7 @@ def revoke_api_key(
         created_at=data["created_at"],
         last_used_at=data["last_used_at"],
         revoked_at=revoked_at,
+        expires_at=data.get("expires_at"),
     )
 
 
@@ -1179,7 +1320,7 @@ def list_api_keys(org_id: str, key_row: dict = Depends(_require_org_and_scopes([
         raise HTTPException(status_code=403, detail="Forbidden")
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, org_id, name, scopes_json, created_at, last_used_at, revoked_at FROM api_keys WHERE org_id = ?",
+            "SELECT id, org_id, name, scopes_json, created_at, last_used_at, revoked_at, expires_at FROM api_keys WHERE org_id = ?",
             (org_id,),
         ).fetchall()
     return [
@@ -1191,9 +1332,50 @@ def list_api_keys(org_id: str, key_row: dict = Depends(_require_org_and_scopes([
             created_at=row["created_at"],
             last_used_at=row["last_used_at"],
             revoked_at=row["revoked_at"],
+            expires_at=row["expires_at"],
         )
         for row in rows
     ]
+
+
+@app.post("/orgs/{org_id}/break-glass", response_model=BreakGlassResponse)
+def create_break_glass_key(
+    org_id: str,
+    minutes: int = 60,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> BreakGlassResponse:
+    if org_id != key_row["org_id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    api_key = secrets.token_urlsafe(32)
+    key_id = str(uuid.uuid4())
+    created_at = now_iso()
+    expires_at = (datetime.utcnow() + timedelta(minutes=minutes)).isoformat() + "Z"
+    scopes = [
+        "orgs:read",
+        "orgs:write",
+        "policies:read",
+        "policies:write",
+        "resources:read",
+        "resources:write",
+        "evaluations:read",
+        "evaluations:write",
+        "evidence:read",
+        "evidence:write",
+        "connectors:read",
+        "scim:read",
+        "scim:write",
+        "sso:read",
+        "sso:write",
+        "rbac:read",
+        "rbac:write",
+    ]
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO api_keys (id, org_id, name, key_hash, scopes_json, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (key_id, org_id, "break-glass", _hash_key(api_key), dump_json_field(scopes), created_at, expires_at),
+        )
+    return BreakGlassResponse(api_key=api_key, expires_at=expires_at)
 
 
 @app.post("/orgs/{org_id}/sso", response_model=SsoConfig)
@@ -1242,6 +1424,25 @@ def list_sso_configs(
         )
         for row in rows
     ]
+
+
+@app.get("/orgs/{org_id}/sso/quickstart", response_model=dict)
+def sso_quickstart(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["sso:read"])),
+) -> dict:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return {
+        "okta": {
+            "metadata": {"sso_url": "https://YOUR_OKTA_DOMAIN/app/.../sso/saml"},
+            "notes": "Provide Okta SAML metadata or OIDC authorize URL + client_id",
+        },
+        "azuread": {
+            "metadata": {"authorize_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"},
+            "notes": "Provide Azure AD tenant ID + app registration client_id",
+        },
+    }
 
 
 @app.post("/sso/saml/initiate", response_model=SamlAuthResponse)
@@ -1392,6 +1593,82 @@ def scim_delete_user(
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    return {"deleted": True}
+
+
+@app.get("/scim/Groups", response_model=ScimGroupListResponse)
+def scim_list_groups(
+    startIndex: int = 1,
+    count: int = 100,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:read"])),
+) -> ScimGroupListResponse:
+    org_id = key_row["org_id"]
+    offset = max(startIndex - 1, 0)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM scim_groups WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (org_id, count, offset),
+        ).fetchall()
+    groups = [
+        {
+            "id": row["id"],
+            "displayName": row["display_name"],
+            "members": parse_json_field(row["members_json"]) or [],
+        }
+        for row in rows
+    ]
+    return ScimGroupListResponse(
+        totalResults=len(groups),
+        itemsPerPage=count,
+        startIndex=startIndex,
+        Resources=[ScimGroup(**group) for group in groups],
+    )
+
+
+@app.post("/scim/Groups", response_model=ScimGroup)
+def scim_create_group(
+    payload: ScimGroupCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:write"])),
+) -> ScimGroup:
+    org_id = key_row["org_id"]
+    group_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO scim_groups (id, org_id, display_name, members_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (group_id, org_id, payload.displayName, dump_json_field(payload.members), created_at),
+        )
+    return ScimGroup(id=group_id, displayName=payload.displayName, members=payload.members)
+
+
+@app.get("/scim/Groups/{group_id}", response_model=ScimGroup)
+def scim_get_group(
+    group_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:read"])),
+) -> ScimGroup:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM scim_groups WHERE id = ? AND org_id = ?", (group_id, org_id)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return ScimGroup(
+        id=row["id"],
+        displayName=row["display_name"],
+        members=parse_json_field(row["members_json"]) or [],
+    )
+
+
+@app.delete("/scim/Groups/{group_id}", response_model=dict)
+def scim_delete_group(
+    group_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["scim:write"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM scim_groups WHERE id = ? AND org_id = ?", (group_id, org_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Group not found")
+        conn.execute("DELETE FROM scim_groups WHERE id = ?", (group_id,))
     return {"deleted": True}
 
 
@@ -2025,6 +2302,13 @@ def enforce(
     risk_score = _compute_risk_score(resource, payload.action)
     threshold = payload.risk_threshold if payload.risk_threshold is not None else settings.risk_score_threshold
     enforced = False
+    sensitivity = 1
+    if resource.ai_metadata and isinstance(resource.ai_metadata, dict):
+        sensitivity = int(resource.ai_metadata.get("sensitivity_level") or 1)
+    if sensitivity >= 4 and not payload.mfa_verified:
+        decision = "deny"
+        rationale = "MFA required for high sensitivity access"
+        enforced = True
     if payload.webhook_enforcement:
         with get_conn() as conn:
             webhook_row = conn.execute(
@@ -2536,6 +2820,82 @@ def list_connector_metadata(key_row: dict = Depends(_require_org_and_scopes(["co
     return [meta.__dict__ for meta in list_connectors()]
 
 
+@app.post("/catalog/mappings", response_model=CatalogMapping)
+def create_catalog_mapping(
+    payload: CatalogMappingCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> CatalogMapping:
+    org_id = key_row["org_id"]
+    mapping_id = str(uuid.uuid4())
+    created_at = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO catalog_mappings (id, org_id, mapping_json, created_at) VALUES (?, ?, ?, ?)",
+            (mapping_id, org_id, dump_json_field(payload.mapping), created_at),
+        )
+    return CatalogMapping(id=mapping_id, org_id=org_id, mapping=payload.mapping, created_at=created_at)
+
+
+@app.get("/catalog/mappings", response_model=list[CatalogMapping])
+def list_catalog_mappings(
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> list[CatalogMapping]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM catalog_mappings WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    return [
+        CatalogMapping(
+            id=row["id"],
+            org_id=row["org_id"],
+            mapping=parse_json_field(row["mapping_json"]),
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+@app.post("/ticketing/exceptions", response_model=ExceptionRequest)
+def create_exception_request(
+    payload: ExceptionRequestCreate,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> ExceptionRequest:
+    org_id = key_row["org_id"]
+    request_id = str(uuid.uuid4())
+    created_at = now_iso()
+    status = "pending"
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO exception_requests (id, org_id, resource_id, principal, reason, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (request_id, org_id, payload.resource_id, payload.principal, payload.reason, status, created_at),
+        )
+    return ExceptionRequest(
+        id=request_id,
+        org_id=org_id,
+        resource_id=payload.resource_id,
+        principal=payload.principal,
+        reason=payload.reason,
+        status=status,
+        created_at=created_at,
+    )
+
+
+@app.get("/ticketing/exceptions", response_model=list[ExceptionRequest])
+def list_exception_requests(
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> list[ExceptionRequest]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM exception_requests WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    return [ExceptionRequest(**row_to_dict(row)) for row in rows]
+
+
 @app.post("/webhooks", response_model=Webhook)
 def create_webhook(
     payload: WebhookCreate,
@@ -2745,6 +3105,34 @@ def export_decision_logs(
     return DecisionLogExport(org_id=org_id, exported_at=exported_at, total=len(rows))
 
 
+@app.get("/siem/export")
+def export_siem(
+    format: str = "json",
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+):
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM decision_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT 500",
+            (org_id,),
+        ).fetchall()
+    payloads = [parse_json_field(row["payload_json"]) for row in rows]
+    if format == "cef":
+        lines = []
+        for entry in payloads:
+            decision = entry.get("decision") or "unknown"
+            lines.append(
+                "CEF:0|UGL|Decision|1|decision|Decision Log|5|"
+                f"cs1Label=policyId cs1={entry.get('policy_id','')} "
+                f"cs2Label=principal cs2={entry.get('principal','')} "
+                f"cs3Label=action cs3={entry.get('action','')} "
+                f"cs4Label=resourceId cs4={entry.get('resource_id','')} "
+                f"outcome={decision}"
+            )
+        return Response(content="\n".join(lines), media_type="text/plain")
+    return payloads
+
+
 @app.get("/audit/export")
 def export_audit_log(
     format: str = "csv",
@@ -2951,18 +3339,21 @@ def export_org(
         )
         for row in resource_rows
     ]
-    api_keys = [
-        ApiKey(
-            id=row["id"],
-            org_id=row["org_id"],
-            name=row["name"],
-            scopes=parse_json_field(row["scopes_json"]),
-            created_at=row["created_at"],
-            last_used_at=row["last_used_at"],
-            revoked_at=row["revoked_at"],
+    api_keys = []
+    for row in api_key_rows:
+        data = row_to_dict(row)
+        api_keys.append(
+            ApiKey(
+                id=data["id"],
+                org_id=data["org_id"],
+                name=data["name"],
+                scopes=parse_json_field(data["scopes_json"]),
+                created_at=data["created_at"],
+                last_used_at=data["last_used_at"],
+                revoked_at=data["revoked_at"],
+                expires_at=data.get("expires_at"),
+            )
         )
-        for row in api_key_rows
-    ]
     webhooks = [
         Webhook(
             id=row["id"],

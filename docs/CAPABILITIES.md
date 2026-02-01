@@ -20,6 +20,9 @@ This document is a machine-readable summary of the current system capabilities.
 - **Admin dashboard:** Policy playground, key management, team view, evidence search, trust badge.
 - **Identity:** SSO/SCIM stubs, user provisioning flows.
 - **Enforcement:** `/enforce` endpoint + SDK middleware helpers.
+- **SIEM export:** CEF/JSON export for Splunk/Sentinel.
+- **Ticketing + catalog:** Exception requests + catalog mappings.
+- **Backup:** Snapshot endpoint for SQLite deployments.
 
 ## Clarifications
 - **SSO/SCIM stubs:** Provide API surface + UI flows for initiation/provisioning. They do not include full IdP handshakes, token validation, or vendor-specific provisioning callbacks.

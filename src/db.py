@@ -161,6 +161,7 @@ def init_db() -> None:
                 org_id TEXT NOT NULL,
                 name TEXT NOT NULL,
                 permissions_json TEXT NOT NULL,
+                inherits_from TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS team_memberships (
@@ -179,13 +180,21 @@ def init_db() -> None:
                 scopes_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 last_used_at TEXT,
-                revoked_at TEXT
+                revoked_at TEXT,
+                expires_at TEXT
             );
             CREATE TABLE IF NOT EXISTS sso_configs (
                 id TEXT PRIMARY KEY,
                 org_id TEXT NOT NULL,
                 provider TEXT NOT NULL,
                 metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS scim_groups (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                members_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS policies (
@@ -270,6 +279,21 @@ def init_db() -> None:
                 enabled INTEGER NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS catalog_mappings (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                mapping_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS exception_requests (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                principal TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS webhook_deliveries (
                 id TEXT PRIMARY KEY,
                 webhook_id TEXT NOT NULL,
@@ -298,9 +322,11 @@ def init_db() -> None:
         _add_column_if_missing(conn, "resources", "ai_metadata_json", "TEXT")
         _add_column_if_missing(conn, "api_keys", "scopes_json", "TEXT")
         _add_column_if_missing(conn, "api_keys", "revoked_at", "TEXT")
+        _add_column_if_missing(conn, "api_keys", "expires_at", "TEXT")
         _add_column_if_missing(conn, "evaluations", "prev_hash", "TEXT")
         _add_column_if_missing(conn, "evaluations", "record_hash", "TEXT")
         _add_column_if_missing(conn, "evaluations", "explain_json", "TEXT")
+        _add_column_if_missing(conn, "roles", "inherits_from", "TEXT")
         _add_column_if_missing(conn, "evidence_exports", "content_bytes", "INTEGER")
         _add_column_if_missing(conn, "webhook_deliveries", "attempts", "INTEGER")
         _add_column_if_missing(conn, "webhook_deliveries", "next_attempt_at", "TEXT")

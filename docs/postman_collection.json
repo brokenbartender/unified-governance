@@ -122,6 +122,87 @@
       "response": []
     },
     {
+      "name": "Synthetic Checks",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/status/synthetic-checks",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "status",
+            "synthetic-checks"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Sla Report",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/sla/report",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "sla",
+            "report"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Backup",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/backups/create",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "backups",
+            "create"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Metrics",
       "request": {
         "method": "GET",
@@ -464,6 +545,35 @@
       "response": []
     },
     {
+      "name": "Analyze Roles",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/orgs/{org_id}/roles/analyze",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "orgs",
+            "{org_id}",
+            "roles",
+            "analyze"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Create Team Membership",
       "request": {
         "method": "POST",
@@ -644,6 +754,40 @@
       "response": []
     },
     {
+      "name": "Create Break Glass Key",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/orgs/{org_id}/break-glass",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "orgs",
+            "{org_id}",
+            "break-glass"
+          ],
+          "query": [
+            {
+              "key": "minutes",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Create Sso Config",
       "request": {
         "method": "POST",
@@ -698,6 +842,35 @@
             "orgs",
             "{org_id}",
             "sso"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Sso Quickstart",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/orgs/{org_id}/sso/quickstart",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "orgs",
+            "{org_id}",
+            "sso",
+            "quickstart"
           ]
         }
       },
@@ -952,6 +1125,130 @@
             "scim",
             "Users",
             "{user_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Scim List Groups",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/scim/Groups",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "scim",
+            "Groups"
+          ],
+          "query": [
+            {
+              "key": "startIndex",
+              "value": ""
+            },
+            {
+              "key": "count",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Scim Create Group",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/scim/Groups",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "scim",
+            "Groups"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Scim Get Group",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/scim/Groups/{group_id}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "scim",
+            "Groups",
+            "{group_id}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Scim Delete Group",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/scim/Groups/{group_id}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "scim",
+            "Groups",
+            "{group_id}"
           ]
         }
       },
@@ -2031,6 +2328,122 @@
       "response": []
     },
     {
+      "name": "Create Catalog Mapping",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/catalog/mappings",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "catalog",
+            "mappings"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Catalog Mappings",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/catalog/mappings",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "catalog",
+            "mappings"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Exception Request",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/ticketing/exceptions",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "ticketing",
+            "exceptions"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Exception Requests",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/ticketing/exceptions",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "ticketing",
+            "exceptions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Create Webhook",
       "request": {
         "method": "POST",
@@ -2219,6 +2632,39 @@
           ],
           "path": [
             "decision-logs",
+            "export"
+          ],
+          "query": [
+            {
+              "key": "format",
+              "value": ""
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Export Siem",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/siem/export",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "siem",
             "export"
           ],
           "query": [

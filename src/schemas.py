@@ -50,6 +50,7 @@ class Team(TeamCreate):
 class RoleCreate(BaseModel):
     name: str
     permissions: List[str] = Field(default_factory=list)
+    inherits_from: Optional[str] = None
 
 
 class Role(RoleCreate):
@@ -106,6 +107,7 @@ class ApiKey(BaseModel):
     created_at: str
     last_used_at: Optional[str] = None
     revoked_at: Optional[str] = None
+    expires_at: Optional[str] = None
 
 
 class ApiKeyIssued(ApiKey):
@@ -373,6 +375,12 @@ class EnforcementRequest(BaseModel):
     resource_id: str
     risk_threshold: Optional[int] = None
     webhook_enforcement: bool = False
+    mfa_verified: bool = False
+
+
+class BreakGlassResponse(BaseModel):
+    api_key: str
+    expires_at: str
 
 
 class EnforcementDecision(BaseModel):
@@ -385,6 +393,33 @@ class EnforcementDecision(BaseModel):
     principal: str
     action: str
     explain: Optional[Dict[str, Any]] = None
+
+
+class CatalogMapping(BaseModel):
+    id: str
+    org_id: str
+    mapping: Dict[str, Any]
+    created_at: str
+
+
+class CatalogMappingCreate(BaseModel):
+    mapping: Dict[str, Any]
+
+
+class ExceptionRequest(BaseModel):
+    id: str
+    org_id: str
+    resource_id: str
+    principal: str
+    reason: str
+    status: str
+    created_at: str
+
+
+class ExceptionRequestCreate(BaseModel):
+    resource_id: str
+    principal: str
+    reason: str
 
 
 class ScimUser(BaseModel):
@@ -407,3 +442,21 @@ class ScimListResponse(BaseModel):
     itemsPerPage: int
     startIndex: int
     Resources: List[ScimUser]
+
+
+class ScimGroup(BaseModel):
+    id: str
+    displayName: str
+    members: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ScimGroupCreate(BaseModel):
+    displayName: str
+    members: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ScimGroupListResponse(BaseModel):
+    totalResults: int
+    itemsPerPage: int
+    startIndex: int
+    Resources: List[ScimGroup]

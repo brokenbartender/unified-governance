@@ -11,5 +11,8 @@ Point Envoy to `POST /enforce` with JSON body {policy_id, principal, action, res
 ## Risk-based enforcement
 `/enforce` applies a risk score. If score >= `RISK_SCORE_THRESHOLD`, it denies even if policy allows.
 
+## MFA Hooks
+`/enforce` accepts `mfa_verified`. High sensitivity resources require MFA.
+
 ## Webhook enforcement
 `/enforce` supports optional webhook enforcement; the latest enabled webhook can override the decision.

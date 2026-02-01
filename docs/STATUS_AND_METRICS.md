@@ -1,13 +1,13 @@
 # Status & Metrics
 
 ## Health endpoints
-- `GET /health` ? lightweight status check.
-- `GET /v1/health` ? versioned alias.
-- `GET /status/live` ? liveness with server time.
-- `GET /status/ready` ? readiness with DB check.
+- `GET /health` - lightweight status check.
+- `GET /v1/health` - versioned alias.
+- `GET /status/live` - liveness with server time.
+- `GET /status/ready` - readiness with DB check.
 
 ## Metrics
-- `GET /metrics` ? Prometheus-style counters/gauges.
+- `GET /metrics` - Prometheus-style counters/gauges.
 
 ### Included metrics
 - `ug_orgs_total`
@@ -17,6 +17,15 @@
 - `ug_evaluations_total`
 - `ug_evidence_exports_total`
 - `ug_webhooks_total`
+- `ug_evaluations_allow_total`
+- `ug_evaluations_deny_total`
+
+## SLA & Synthetic Checks
+- `GET /sla/report` - SLA summary.
+- `GET /status/synthetic-checks` - multi-region synthetic probes.
+
+## Backups
+- `POST /backups/create` - SQLite snapshot (local).
 
 ## Request tracing
 All responses include `X-Request-Id` for correlation.

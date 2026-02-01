@@ -212,6 +212,28 @@ def test_scim_user_flow():
     assert delete_resp.status_code == 200
 
 
+def test_scim_group_flow():
+    _, api_key, _ = _create_org_and_key(scopes=["scim:read", "scim:write"])
+    headers = {"X-API-Key": api_key}
+
+    create_resp = client.post(
+        "/scim/Groups",
+        headers=headers,
+        json={"displayName": "Engineering", "members": []},
+    )
+    assert create_resp.status_code == 200
+    group_id = create_resp.json()["id"]
+
+    list_resp = client.get("/scim/Groups", headers=headers)
+    assert list_resp.status_code == 200
+
+    get_resp = client.get(f"/scim/Groups/{group_id}", headers=headers)
+    assert get_resp.status_code == 200
+
+    delete_resp = client.delete(f"/scim/Groups/{group_id}", headers=headers)
+    assert delete_resp.status_code == 200
+
+
 def test_sso_initiate_flows():
     org_id, api_key, _ = _create_org_and_key(scopes=["sso:read", "sso:write"])
     headers = {"X-API-Key": api_key}
@@ -378,6 +400,15 @@ def test_status_and_metrics():
     metrics = client.get("/metrics")
     assert metrics.status_code == 200
     assert "ug_orgs_total" in metrics.text
+
+
+def test_break_glass_key():
+    org_id, api_key, _ = _create_org_and_key(scopes=["orgs:write"])
+    headers = {"X-API-Key": api_key}
+
+    resp = client.post(f"/orgs/{org_id}/break-glass", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["api_key"]
 
 
 def test_policy_revisions_and_simulation():

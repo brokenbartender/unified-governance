@@ -7,6 +7,12 @@ Provide a simple pattern for adding connector metadata and sample resources.
 - `src/connectors/base.py` registry + base class
 - `src/connectors/snowflake.py` sample warehouse connector
 - `src/connectors/google_drive.py` sample file connector
+- `src/connectors/okta.py` sample identity connector
+- `src/connectors/aws_cloudtrail.py` sample audit connector
+- `src/connectors/box.py` sample file connector
+- `src/connectors/salesforce.py` sample CRM connector
+- `src/connectors/slack.py` sample collaboration connector
+- `src/connectors/jira.py` sample ticketing connector
 
 ## API
 - `GET /connectors` list connector metadata

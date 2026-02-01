@@ -39,6 +39,7 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `POST /orgs/{org_id}/keys`
 - `POST /orgs/{org_id}/keys/{key_id}/rotate`
 - `POST /orgs/{org_id}/keys/{key_id}/revoke`
+- `POST /orgs/{org_id}/break-glass`
 - `POST /orgs/{org_id}/sso`
 - `GET /orgs/{org_id}/usage`
 - `GET /orgs/{org_id}/export`
@@ -64,14 +65,24 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /connectors`
 - `POST /scim/Users`
 - `GET /scim/Users`
+- `POST /scim/Groups`
+- `GET /scim/Groups`
 - `POST /webhooks`
 - `POST /webhooks/{id}/test`
 - `POST /webhooks/{id}/rotate-secret`
 - `GET /decision-logs/export`
+- `GET /siem/export`
+- `POST /catalog/mappings`
+- `GET /catalog/mappings`
+- `POST /ticketing/exceptions`
+- `GET /ticketing/exceptions`
 - `POST /maintenance/cleanup`
 - `GET /status/live`
 - `GET /status/ready`
+- `GET /status/synthetic-checks`
+- `GET /sla/report`
 - `GET /metrics`
+- `POST /backups/create`
 
 ## SDKs
 - Python: `sdk/python`
