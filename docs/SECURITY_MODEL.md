@@ -12,6 +12,8 @@
 ## Evidence Integrity
 - Per-record hash chain for evaluations
 - HMAC signature for exports
+- Evidence export records stored for audit reference
+- Chain verification endpoint: `GET /evidence/verify`
 
 ## Retention
 - Configured via `RETENTION_DAYS`

@@ -23,6 +23,7 @@ from .schemas import (
     Evaluation,
     EvaluationRequest,
     EvidenceExport,
+    EvidenceVerifyResult,
     Membership,
     MembershipCreate,
     OidcAuthRequest,
@@ -70,6 +71,10 @@ def _hash_record(payload: dict, prev_hash: str | None) -> str:
     data = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     joined = f"{prev_hash or ''}:{data}".encode("utf-8")
     return hashlib.sha256(joined).hexdigest()
+
+
+def _hash_content(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def _get_key_row(raw_key: str | None) -> dict:
@@ -957,6 +962,36 @@ def enforce_retention(key_row: dict = Depends(_require_org_and_scopes(["evidence
     )
 
 
+@app.get("/evidence/verify", response_model=EvidenceVerifyResult)
+def verify_evidence_chain(
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> EvidenceVerifyResult:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM evaluations WHERE org_id = ? ORDER BY created_at ASC",
+            (org_id,),
+        ).fetchall()
+    prev_hash = None
+    for row in rows:
+        data = row_to_dict(row)
+        payload_hash = {
+            "org_id": data["org_id"],
+            "policy_id": data["policy_id"],
+            "principal": data["principal"],
+            "action": data["action"],
+            "resource_id": data["resource_id"],
+            "decision": data["decision"],
+            "rationale": data["rationale"],
+            "created_at": data["created_at"],
+        }
+        expected = _hash_record(payload_hash, prev_hash)
+        if data.get("record_hash") != expected:
+            return EvidenceVerifyResult(valid=False, checked_records=len(rows), last_hash=prev_hash)
+        prev_hash = expected
+    return EvidenceVerifyResult(valid=True, checked_records=len(rows), last_hash=prev_hash)
+
+
 @app.get("/evidence/export", response_model=EvidenceExport)
 def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_and_scopes(["evidence:read"]))):
     org_id = key_row["org_id"]
@@ -967,6 +1002,7 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
         ).fetchall()
     evaluations = [Evaluation(**row_to_dict(row)) for row in rows]
     exported_at = now_iso()
+    export_id = str(uuid.uuid4())
 
     payload = {
         "org_id": org_id,
@@ -985,10 +1021,17 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
             csv_data.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
+        content_hash = _hash_content(csv_data)
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, record_count, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (export_id, org_id, "csv", content_hash, signature, len(evaluations), exported_at),
+            )
         return Response(
             content=csv_data,
             media_type="text/csv",
-            headers={"X-Evidence-Signature": signature},
+            headers={"X-Evidence-Signature": signature, "X-Evidence-Export-Id": export_id},
         )
 
     json_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -997,8 +1040,16 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
         json_payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
+    content_hash = _hash_content(json_payload)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO evidence_exports (id, org_id, format, content_hash, signature, record_count, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (export_id, org_id, "json", content_hash, signature, len(evaluations), exported_at),
+        )
 
     return EvidenceExport(
+        export_id=export_id,
         org_id=org_id,
         exported_at=exported_at,
         format="json",

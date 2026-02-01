@@ -204,6 +204,7 @@ class Evaluation(BaseModel):
 
 
 class EvidenceExport(BaseModel):
+    export_id: str
     org_id: str
     exported_at: str
     format: str
@@ -215,6 +216,12 @@ class RetentionStatus(BaseModel):
     retention_days: int
     cutoff_timestamp: str
     deleted_records: int
+
+
+class EvidenceVerifyResult(BaseModel):
+    valid: bool
+    checked_records: int
+    last_hash: Optional[str] = None
 
 
 class OpaPolicyExport(BaseModel):

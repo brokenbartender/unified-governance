@@ -218,6 +218,15 @@ def init_db() -> None:
                 prev_hash TEXT,
                 record_hash TEXT
             );
+            CREATE TABLE IF NOT EXISTS evidence_exports (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                format TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                record_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         _add_column_if_missing(conn, "policies", "org_id", "TEXT")

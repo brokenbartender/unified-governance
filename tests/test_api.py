@@ -74,6 +74,11 @@ def test_policy_resource_evaluation_flow():
     evidence_resp = client.get("/evidence/export", headers=headers)
     assert evidence_resp.status_code == 200
     assert evidence_resp.json()["org_id"] == org_id
+    assert evidence_resp.json()["export_id"]
+
+    verify_resp = client.get("/evidence/verify", headers=headers)
+    assert verify_resp.status_code == 200
+    assert verify_resp.json()["valid"] is True
 
 
 def test_evidence_csv_export_signature_header():
@@ -83,6 +88,7 @@ def test_evidence_csv_export_signature_header():
     response = client.get("/evidence/export?format=csv", headers=headers)
     assert response.status_code == 200
     assert response.headers.get("X-Evidence-Signature")
+    assert response.headers.get("X-Evidence-Export-Id")
     assert "text/csv" in response.headers.get("content-type", "")
 
 
