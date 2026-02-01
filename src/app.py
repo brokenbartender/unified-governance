@@ -102,6 +102,11 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/")
+def root() -> dict:
+    return {"status": "ok", "docs": "/docs"}
+
+
 @app.post("/orgs", response_model=Org)
 def create_org(payload: OrgCreate) -> Org:
     org_id = str(uuid.uuid4())
