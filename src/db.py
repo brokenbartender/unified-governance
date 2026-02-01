@@ -33,12 +33,37 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row[1] == column for row in rows)
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+    if not _column_exists(conn, table, column):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS orgs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT,
+                FOREIGN KEY(org_id) REFERENCES orgs(id)
+            );
             CREATE TABLE IF NOT EXISTS policies (
                 id TEXT PRIMARY KEY,
+                org_id TEXT,
                 name TEXT NOT NULL,
                 description TEXT,
                 rule_json TEXT NOT NULL,
@@ -46,6 +71,7 @@ def init_db() -> None:
             );
             CREATE TABLE IF NOT EXISTS resources (
                 id TEXT PRIMARY KEY,
+                org_id TEXT,
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
                 attributes_json TEXT NOT NULL,
@@ -53,6 +79,7 @@ def init_db() -> None:
             );
             CREATE TABLE IF NOT EXISTS evaluations (
                 id TEXT PRIMARY KEY,
+                org_id TEXT,
                 policy_id TEXT NOT NULL,
                 principal TEXT NOT NULL,
                 action TEXT NOT NULL,
@@ -65,6 +92,9 @@ def init_db() -> None:
             );
             """
         )
+        _add_column_if_missing(conn, "policies", "org_id", "TEXT")
+        _add_column_if_missing(conn, "resources", "org_id", "TEXT")
+        _add_column_if_missing(conn, "evaluations", "org_id", "TEXT")
 
 
 def now_iso() -> str:

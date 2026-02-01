@@ -17,8 +17,9 @@ Provide a drop-in governance service that maps data access, enforces policy-as-c
 - Policy-as-code engine
 - Resource catalog (systems/vendors/models)
 - Policy evaluation API
-- Evidence-ready logs for every decision
-- Minimal dashboard-ready endpoints
+- Evidence export (JSON/CSV + signature)
+- Multi-tenant org + API key auth
+- Connector SDK + sample connectors
 
 ## Non-Goals (MVP)
 - Full RBAC/ABAC UI
@@ -27,7 +28,7 @@ Provide a drop-in governance service that maps data access, enforces policy-as-c
 
 ## Success Metrics
 - Time-to-policy evaluation under 100ms (local)
-- Audit evidence export in one click (phase 2)
+- Audit evidence export in one click (phase 1)
 - 3 enterprise pilots by 90 days (if productized)
 
 ## Risks

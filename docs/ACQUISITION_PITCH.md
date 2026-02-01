@@ -9,7 +9,7 @@ A drop-in policy-as-code and evidence engine for third-party and AI data access 
 
 ## What You Get
 - Enforceable policies with clear allow/deny decisions
-- Evidence logs for audits and customer security reviews
+- Evidence exports with tamper-evident signatures
 - Connector SDK pattern for rapid integrations
 
 ## Buyer Fit

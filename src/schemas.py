@@ -4,6 +4,31 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class OrgCreate(BaseModel):
+    name: str
+
+
+class Org(OrgCreate):
+    id: str
+    created_at: str
+
+
+class ApiKeyCreate(BaseModel):
+    name: str
+
+
+class ApiKey(BaseModel):
+    id: str
+    org_id: str
+    name: str
+    created_at: str
+    last_used_at: Optional[str] = None
+
+
+class ApiKeyIssued(ApiKey):
+    api_key: str
+
+
 class PolicyRule(BaseModel):
     allowed_principals: List[str] = Field(default_factory=lambda: ["*"])
     allowed_actions: List[str] = Field(default_factory=lambda: ["*"])
@@ -19,6 +44,7 @@ class PolicyCreate(BaseModel):
 
 class Policy(PolicyCreate):
     id: str
+    org_id: str
     created_at: str
 
 
@@ -30,6 +56,7 @@ class ResourceCreate(BaseModel):
 
 class Resource(ResourceCreate):
     id: str
+    org_id: str
     created_at: str
 
 
@@ -42,6 +69,7 @@ class EvaluationRequest(BaseModel):
 
 class Evaluation(BaseModel):
     id: str
+    org_id: str
     policy_id: str
     principal: str
     action: str
@@ -49,3 +77,11 @@ class Evaluation(BaseModel):
     decision: str
     rationale: Optional[str] = None
     created_at: str
+
+
+class EvidenceExport(BaseModel):
+    org_id: str
+    exported_at: str
+    format: str
+    signature: str
+    evaluations: List[Evaluation]
