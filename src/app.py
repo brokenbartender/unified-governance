@@ -1518,6 +1518,7 @@ def evidence_search(
     policy_id: str | None = None,
     decision: str | None = None,
     limit: int = 50,
+    offset: int = 0,
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
 ) -> EvidenceSearchResult:
     org_id = key_row["org_id"]
@@ -1535,8 +1536,8 @@ def evidence_search(
     where = " AND ".join(conditions)
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT * FROM evaluations WHERE {where} ORDER BY created_at DESC LIMIT ?",
-            (*params, limit),
+            f"SELECT * FROM evaluations WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
         ).fetchall()
         total = conn.execute(
             f"SELECT COUNT(*) as total FROM evaluations WHERE {where}",
@@ -1750,8 +1751,9 @@ def test_webhook(
 
 @app.get("/decision-logs/export", response_model=DecisionLogExport)
 def export_decision_logs(
+    format: str = "json",
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
-) -> DecisionLogExport:
+):
     org_id = key_row["org_id"]
     with get_conn() as conn:
         rows = conn.execute(
@@ -1759,11 +1761,14 @@ def export_decision_logs(
             (org_id,),
         ).fetchall()
     exported_at = now_iso()
-    return DecisionLogExport(
-        org_id=org_id,
-        exported_at=exported_at,
-        total=len(rows),
-    )
+    if format == "csv":
+        serialized = io.StringIO()
+        writer = csv.DictWriter(serialized, fieldnames=["id", "org_id", "payload_json", "created_at"])
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row_to_dict(row))
+        return Response(content=serialized.getvalue(), media_type="text/csv")
+    return DecisionLogExport(org_id=org_id, exported_at=exported_at, total=len(rows))
 
 
 @app.get("/orgs/{org_id}/usage", response_model=UsageSummary)
