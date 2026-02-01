@@ -56,6 +56,7 @@ from .schemas import (
     UsageSummary,
     User,
     UserCreate,
+    EvidenceSearchResult,
 )
 from .settings import settings
 
@@ -379,6 +380,13 @@ def admin() -> str:
       <div id="evidence" class="tab-panel hidden">
         <div class="card">
           <h3>Evidence</h3>
+          <label>Principal (optional)</label>
+          <input id="evidencePrincipal" />
+          <label>Policy ID (optional)</label>
+          <input id="evidencePolicy" />
+          <label>Decision (optional)</label>
+          <input id="evidenceDecision" placeholder="allow/deny" />
+          <button onclick="searchEvidence()">Search</button>
           <button onclick="verifyEvidence()">Verify Chain</button>
           <button onclick="exportEvidence()">Export JSON</button>
           <pre id="evidenceOut">{}</pre>
@@ -492,6 +500,18 @@ def admin() -> str:
 
       async function verifyEvidence() {
         const data = await api('/evidence/verify');
+        document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function searchEvidence() {
+        const principal = document.getElementById('evidencePrincipal').value;
+        const policyId = document.getElementById('evidencePolicy').value;
+        const decision = document.getElementById('evidenceDecision').value;
+        const params = new URLSearchParams();
+        if (principal) params.append('principal', principal);
+        if (policyId) params.append('policy_id', policyId);
+        if (decision) params.append('decision', decision);
+        const data = await api(`/evidence/search?${params.toString()}`);
         document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
       }
 
@@ -1344,11 +1364,18 @@ def playground_evaluate(
         data = row_to_dict(row)
         rule = PolicyRule(**parse_json_field(data["rule_json"]))
         decision, rationale = evaluate_policy(rule, payload.principal, payload.action, resource)
+        matched = {}
+        combined_attributes = dict(resource.attributes)
+        if resource.ai_metadata:
+            combined_attributes.update(resource.ai_metadata)
+        for key, value in rule.required_attributes.items():
+            matched[key] = combined_attributes.get(key)
         results.append(
             PlaygroundDecision(
                 policy_id=data["id"],
                 decision=decision,
                 rationale=rationale,
+                matched_attributes=matched,
             )
         )
     return results
@@ -1380,6 +1407,43 @@ def enforce_retention(key_row: dict = Depends(_require_org_and_scopes(["evidence
         retention_days=settings.retention_days,
         cutoff_timestamp=cutoff_iso,
         deleted_records=deleted,
+    )
+
+
+@app.get("/evidence/search", response_model=EvidenceSearchResult)
+def evidence_search(
+    principal: str | None = None,
+    policy_id: str | None = None,
+    decision: str | None = None,
+    limit: int = 50,
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+) -> EvidenceSearchResult:
+    org_id = key_row["org_id"]
+    conditions = ["org_id = ?"]
+    params: list = [org_id]
+    if principal:
+        conditions.append("principal = ?")
+        params.append(principal)
+    if policy_id:
+        conditions.append("policy_id = ?")
+        params.append(policy_id)
+    if decision:
+        conditions.append("decision = ?")
+        params.append(decision)
+    where = " AND ".join(conditions)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM evaluations WHERE {where} ORDER BY created_at DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        total = conn.execute(
+            f"SELECT COUNT(*) as total FROM evaluations WHERE {where}",
+            tuple(params),
+        ).fetchone()
+    total_count = total["total"] if isinstance(total, dict) else total[0]
+    return EvidenceSearchResult(
+        evaluations=[Evaluation(**row_to_dict(row)) for row in rows],
+        total=total_count,
     )
 
 

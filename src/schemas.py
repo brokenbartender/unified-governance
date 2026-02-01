@@ -256,6 +256,12 @@ class PlaygroundDecision(BaseModel):
     policy_id: str
     decision: str
     rationale: str
+    matched_attributes: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EvidenceSearchResult(BaseModel):
+    evaluations: List[Evaluation]
+    total: int
 
 
 class OpaPolicyExport(BaseModel):

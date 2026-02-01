@@ -335,3 +335,12 @@ def test_usage_endpoint():
     usage = client.get(f"/orgs/{org_id}/usage", headers=headers)
     assert usage.status_code == 200
     assert usage.json()["total_evaluations"] >= 1
+
+
+def test_evidence_search():
+    _, api_key, _ = _create_org_and_key(scopes=["evidence:read"])
+    headers = {"X-API-Key": api_key}
+
+    search = client.get("/evidence/search", headers=headers)
+    assert search.status_code == 200
+    assert "evaluations" in search.json()
