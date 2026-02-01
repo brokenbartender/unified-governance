@@ -34,6 +34,8 @@ from .schemas import (
     Policy,
     PolicyCreate,
     PolicyRule,
+    PlaygroundDecision,
+    PlaygroundRequest,
     Resource,
     ResourceCreate,
     RetentionStatus,
@@ -254,103 +256,127 @@ def admin() -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Unified Governance Admin</title>
     <style>
-      body {
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background: #0b1220;
-        color: #e2e8f0;
-        margin: 0;
-      }
-      .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 60px; }
+      body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; background: #0b1220; color: #e2e8f0; margin: 0; }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 24px 60px; }
       h1 { font-size: 28px; margin-bottom: 8px; }
-      .card {
-        background: #0f172a;
-        border: 1px solid #1f2a44;
-        border-radius: 14px;
-        padding: 18px;
-        margin-bottom: 16px;
-      }
+      .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+      .tab { padding: 8px 12px; border-radius: 10px; background: #1f2a44; cursor: pointer; }
+      .tab.active { background: #38bdf8; color: #0b1220; font-weight: 600; }
+      .card { background: #0f172a; border: 1px solid #1f2a44; border-radius: 14px; padding: 18px; margin-bottom: 16px; }
       label { display: block; font-size: 12px; margin-bottom: 6px; color: #94a3b8; }
-      input, textarea, select {
-        width: 100%;
-        padding: 10px;
-        border-radius: 10px;
-        border: 1px solid #1f2a44;
-        background: #0b1220;
-        color: #e2e8f0;
-      }
-      button {
-        background: #38bdf8;
-        color: #0b1220;
-        border: none;
-        border-radius: 10px;
-        padding: 10px 14px;
-        cursor: pointer;
-        font-weight: 600;
-      }
+      input, textarea { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #1f2a44; background: #0b1220; color: #e2e8f0; }
+      button { background: #38bdf8; color: #0b1220; border: none; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
       pre { background: #0b1220; padding: 12px; border-radius: 10px; overflow: auto; }
       .muted { color: #94a3b8; font-size: 12px; }
+      .hidden { display: none; }
+      table { width: 100%; border-collapse: collapse; }
+      td, th { padding: 6px; border-bottom: 1px solid #1f2a44; font-size: 13px; text-align: left; }
+      .row { display: flex; gap: 10px; }
     </style>
   </head>
   <body>
     <div class="wrap">
       <h1>Unified Governance Admin</h1>
-      <p class="muted">Use your API key to manage policies, resources, and evaluations.</p>
-
+      <p class="muted">API keys, policies, evidence, and RBAC in one place.</p>
       <div class="card">
-        <label>API Key</label>
-        <input id="apiKey" placeholder="X-API-Key" />
-        <button onclick="saveKey()">Save Key</button>
+        <div class="row">
+          <div style="flex:2">
+            <label>API Key</label>
+            <input id="apiKey" placeholder="X-API-Key" />
+          </div>
+          <div style="flex:1">
+            <label>Org ID (for keys/teams)</label>
+            <input id="orgId" placeholder="org_id" />
+          </div>
+        </div>
+        <button onclick="saveKey()">Save</button>
       </div>
 
-      <div class="grid">
-        <div class="card">
-          <h3>Create Policy</h3>
-          <label>Name</label>
-          <input id="policyName" />
-          <label>Rule (JSON)</label>
-          <textarea id="policyRule" rows="6">{\"allowed_principals\":[\"user\"],\"allowed_actions\":[\"read\"],\"resource_types\":[\"file\"],\"required_attributes\":{}}</textarea>
-          <button onclick="createPolicy()">Create Policy</button>
-        </div>
+      <div class="tabs">
+        <div class="tab active" data-tab="playground">Policy Playground</div>
+        <div class="tab" data-tab="keys">Key Management</div>
+        <div class="tab" data-tab="teams">Teams & Roles</div>
+        <div class="tab" data-tab="evidence">Evidence Search</div>
+        <div class="tab" data-tab="quickstart">Quick Start</div>
+      </div>
 
-        <div class="card">
-          <h3>Create Resource</h3>
-          <label>Name</label>
-          <input id="resourceName" />
-          <label>Type</label>
-          <input id="resourceType" value="file" />
-          <label>Attributes (JSON)</label>
-          <textarea id="resourceAttrs" rows="4">{\"sensitivity\":\"high\"}</textarea>
-          <label>AI Metadata (JSON)</label>
-          <textarea id="resourceAI" rows="4">{\"model_type\":\"llm\",\"model_provider\":\"openai\",\"sensitivity_level\":4,\"is_governed\":true}</textarea>
-          <button onclick="createResource()">Create Resource</button>
-        </div>
-
-        <div class="card">
-          <h3>Evaluate</h3>
-          <label>Policy ID</label>
-          <input id="evalPolicy" />
-          <label>Principal</label>
-          <input id="evalPrincipal" value="user" />
-          <label>Action</label>
-          <input id="evalAction" value="read" />
-          <label>Resource ID</label>
-          <input id="evalResource" />
-          <button onclick="evaluateAccess()">Evaluate</button>
+      <div id="playground" class="tab-panel">
+        <div class="grid">
+          <div class="card">
+            <h3>Create Policy</h3>
+            <label>Name</label>
+            <input id="policyName" />
+            <label>Rule (JSON)</label>
+            <textarea id="policyRule" rows="6">{\"allowed_principals\":[\"user\"],\"allowed_actions\":[\"read\"],\"resource_types\":[\"file\"],\"required_attributes\":{\"model_type\":\"llm\"}}</textarea>
+            <button onclick="createPolicy()">Create Policy</button>
+          </div>
+          <div class="card">
+            <h3>Create Resource</h3>
+            <label>Name</label>
+            <input id="resourceName" />
+            <label>Type</label>
+            <input id="resourceType" value="file" />
+            <label>Attributes (JSON)</label>
+            <textarea id="resourceAttrs" rows="4">{\"sensitivity\":\"high\"}</textarea>
+            <label>AI Metadata (JSON)</label>
+            <textarea id="resourceAI" rows="4">{\"model_type\":\"llm\",\"model_provider\":\"openai\",\"sensitivity_level\":4,\"is_governed\":true}</textarea>
+            <button onclick="createResource()">Create Resource</button>
+          </div>
+          <div class="card">
+            <h3>Playground</h3>
+            <label>Resource ID</label>
+            <input id="pgResource" />
+            <label>Principal</label>
+            <input id="pgPrincipal" value="user" />
+            <label>Action</label>
+            <input id="pgAction" value="read" />
+            <button onclick="runPlayground()">Evaluate</button>
+            <pre id="playgroundOut">[]</pre>
+          </div>
         </div>
       </div>
 
-      <div class="grid">
+      <div id="keys" class="tab-panel hidden">
         <div class="card">
-          <h3>Policies</h3>
-          <button onclick="loadPolicies()">Refresh</button>
-          <pre id="policiesOut">[]</pre>
+          <h3>Create API Key</h3>
+          <label>Name</label>
+          <input id="keyName" value="admin" />
+          <button onclick="createKey()">Create</button>
+          <pre id="keyOut">{}</pre>
         </div>
         <div class="card">
-          <h3>Resources</h3>
-          <button onclick="loadResources()">Refresh</button>
-          <pre id="resourcesOut">[]</pre>
+          <h3>Existing Keys</h3>
+          <button onclick="listKeys()">Refresh</button>
+          <pre id="keysOut">[]</pre>
         </div>
+      </div>
+
+      <div id="teams" class="tab-panel hidden">
+        <div class="card">
+          <h3>Create Team / Role</h3>
+          <label>Team Name</label>
+          <input id="teamName" />
+          <button onclick="createTeam()">Create Team</button>
+          <label>Role Name</label>
+          <input id="roleName" />
+          <label>Permissions (JSON array)</label>
+          <textarea id="rolePerms">[\"policies:write\",\"evidence:read\"]</textarea>
+          <button onclick="createRole()">Create Role</button>
+        </div>
+        <div class="card">
+          <h3>Teams</h3>
+          <button onclick="listTeams()">Refresh</button>
+          <pre id="teamsOut">[]</pre>
+        </div>
+        <div class="card">
+          <h3>Roles</h3>
+          <button onclick="listRoles()">Refresh</button>
+          <pre id="rolesOut">[]</pre>
+        </div>
+      </div>
+
+      <div id="evidence" class="tab-panel hidden">
         <div class="card">
           <h3>Evidence</h3>
           <button onclick="verifyEvidence()">Verify Chain</button>
@@ -358,14 +384,37 @@ def admin() -> str:
           <pre id="evidenceOut">{}</pre>
         </div>
       </div>
+
+      <div id="quickstart" class="tab-panel hidden">
+        <div class="card">
+          <h3>Protect an OpenAI Route (Node.js)</h3>
+          <pre>app.post('/openai', async (req, res) => {\n  const policy = await fetch('https://unified-governance.onrender.com/evaluations', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.UG_API_KEY },\n    body: JSON.stringify({ policy_id, principal: req.user.role, action: 'read', resource_id })\n  });\n  if (!policy.ok) return res.status(403).send('Denied');\n  // call OpenAI\n});</pre>
+          <h3>Trust Badge (React)</h3>
+          <pre>&lt;script src=\"https://unified-governance.onrender.com/trust-badge.js\"&gt;&lt;/script&gt;\n&lt;div id=\"ug-trust-badge\"&gt;&lt;/div&gt;</pre>
+          <h3>SCIM Sync</h3>
+          <pre>POST https://unified-governance.onrender.com/scim/Users\nX-API-Key: ...\n{\"userName\":\"alice@example.com\",\"name\":{\"formatted\":\"Alice\"},\"emails\":[{\"value\":\"alice@example.com\",\"primary\":true}],\"active\":true}</pre>
+        </div>
+      </div>
     </div>
 
     <script>
       const apiKeyInput = document.getElementById('apiKey');
+      const orgInput = document.getElementById('orgId');
       apiKeyInput.value = localStorage.getItem('ug_api_key') || '';
+      orgInput.value = localStorage.getItem('ug_org_id') || '';
+
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+          tab.classList.add('active');
+          document.getElementById(tab.dataset.tab).classList.remove('hidden');
+        });
+      });
 
       function saveKey() {
         localStorage.setItem('ug_api_key', apiKeyInput.value.trim());
+        localStorage.setItem('ug_org_id', orgInput.value.trim());
         alert('Saved');
       }
 
@@ -373,10 +422,7 @@ def admin() -> str:
         const key = localStorage.getItem('ug_api_key') || '';
         const res = await fetch(path, {
           method,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': key
-          },
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
           body: body ? JSON.stringify(body) : undefined
         });
         if (!res.ok) throw new Error(`Request failed: ${res.status}`);
@@ -384,21 +430,10 @@ def admin() -> str:
         return text ? JSON.parse(text) : null;
       }
 
-      async function loadPolicies() {
-        const data = await api('/policies');
-        document.getElementById('policiesOut').textContent = JSON.stringify(data, null, 2);
-      }
-
-      async function loadResources() {
-        const data = await api('/resources');
-        document.getElementById('resourcesOut').textContent = JSON.stringify(data, null, 2);
-      }
-
       async function createPolicy() {
         const name = document.getElementById('policyName').value;
         const rule = JSON.parse(document.getElementById('policyRule').value);
         await api('/policies', 'POST', { name, rule });
-        await loadPolicies();
       }
 
       async function createResource() {
@@ -407,16 +442,52 @@ def admin() -> str:
         const attributes = JSON.parse(document.getElementById('resourceAttrs').value);
         const ai_metadata = JSON.parse(document.getElementById('resourceAI').value || '{}');
         await api('/resources', 'POST', { name, type, attributes, ai_metadata });
-        await loadResources();
       }
 
-      async function evaluateAccess() {
-        const policy_id = document.getElementById('evalPolicy').value;
-        const principal = document.getElementById('evalPrincipal').value;
-        const action = document.getElementById('evalAction').value;
-        const resource_id = document.getElementById('evalResource').value;
-        const data = await api('/evaluations', 'POST', { policy_id, principal, action, resource_id });
-        document.getElementById('evidenceOut').textContent = JSON.stringify(data, null, 2);
+      async function runPlayground() {
+        const resource_id = document.getElementById('pgResource').value;
+        const principal = document.getElementById('pgPrincipal').value;
+        const action = document.getElementById('pgAction').value;
+        const data = await api('/playground/evaluate', 'POST', { resource_id, principal, action });
+        document.getElementById('playgroundOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function createKey() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const name = document.getElementById('keyName').value;
+        const data = await api(`/orgs/${org}/keys`, 'POST', { name });
+        document.getElementById('keyOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function listKeys() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const data = await api(`/orgs/${org}/keys`);
+        document.getElementById('keysOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function createTeam() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const name = document.getElementById('teamName').value;
+        await api(`/orgs/${org}/teams`, 'POST', { name });
+      }
+
+      async function createRole() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const name = document.getElementById('roleName').value;
+        const permissions = JSON.parse(document.getElementById('rolePerms').value || '[]');
+        await api(`/orgs/${org}/roles`, 'POST', { name, permissions });
+      }
+
+      async function listTeams() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const data = await api(`/orgs/${org}/teams`);
+        document.getElementById('teamsOut').textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function listRoles() {
+        const org = localStorage.getItem('ug_org_id') || '';
+        const data = await api(`/orgs/${org}/roles`);
+        document.getElementById('rolesOut').textContent = JSON.stringify(data, null, 2);
       }
 
       async function verifyEvidence() {
@@ -458,6 +529,14 @@ def create_user(payload: UserCreate) -> User:
     return User(id=user_id, created_at=created_at, **payload.model_dump())
 
 
+@app.get("/users", response_model=list[User])
+def list_users(key_row: dict = Depends(_require_org_and_scopes(["orgs:read"]))) -> list[User]:
+    _ = key_row
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+    return [User(**row_to_dict(row)) for row in rows]
+
+
 @app.post("/orgs/{org_id}/memberships", response_model=Membership)
 def create_membership(
     org_id: str,
@@ -480,6 +559,21 @@ def create_membership(
         role=payload.role,
         created_at=created_at,
     )
+
+
+@app.get("/orgs/{org_id}/memberships", response_model=list[Membership])
+def list_memberships(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> list[Membership]:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM org_memberships WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    return [Membership(**row_to_dict(row)) for row in rows]
 
 
 @app.post("/orgs/{org_id}/teams", response_model=Team)
@@ -1015,6 +1109,34 @@ def export_policy_opa(
     )
 
 
+@app.post("/policies/generate", response_model=PolicyCreate)
+def generate_policy(
+    prompt: dict,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:write"])),
+) -> PolicyCreate:
+    _ = key_row
+    text = (prompt.get("text") or "").lower()
+    rule = {
+        "allowed_principals": ["*"],
+        "allowed_actions": ["*"],
+        "resource_types": ["*"],
+        "required_attributes": {},
+    }
+    if "marketing" in text:
+        rule["allowed_principals"] = ["marketing"]
+    if "data scientist" in text or "data-scientist" in text:
+        rule["allowed_principals"] = ["data-scientist"]
+    if "gpt-4" in text:
+        rule["required_attributes"]["model_type"] = "llm"
+        rule["required_attributes"]["model_provider"] = "openai"
+    if "sensitive" in text:
+        rule["required_attributes"]["sensitivity_level"] = 4
+    if "cannot" in text or "deny" in text:
+        rule["allowed_actions"] = ["none"]
+    name = prompt.get("name") or "Generated Policy"
+    return PolicyCreate(name=name, description=prompt.get("description"), rule=PolicyRule(**rule))
+
+
 @app.post("/resources", response_model=Resource)
 def create_resource(
     payload: ResourceCreate,
@@ -1186,6 +1308,50 @@ def evaluate(
         prev_hash=prev_hash,
         record_hash=record_hash,
     )
+
+
+@app.post("/playground/evaluate", response_model=list[PlaygroundDecision])
+def playground_evaluate(
+    payload: PlaygroundRequest,
+    key_row: dict = Depends(_require_org_and_scopes(["policies:read", "resources:read"])),
+) -> list[PlaygroundDecision]:
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        policy_rows = conn.execute(
+            "SELECT * FROM policies WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+        resource_row = conn.execute(
+            "SELECT * FROM resources WHERE id = ? AND org_id = ?",
+            (payload.resource_id, org_id),
+        ).fetchone()
+    if not resource_row:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    resource_data = row_to_dict(resource_row)
+    resource = Resource(
+        id=resource_data["id"],
+        org_id=resource_data["org_id"],
+        name=resource_data["name"],
+        type=resource_data["type"],
+        attributes=parse_json_field(resource_data["attributes_json"]),
+        source_system=resource_data.get("source_system") or "manual",
+        external_id=resource_data.get("external_id"),
+        ai_metadata=parse_json_field(resource_data.get("ai_metadata_json", "")) or None,
+        created_at=resource_data["created_at"],
+    )
+    results: list[PlaygroundDecision] = []
+    for row in policy_rows:
+        data = row_to_dict(row)
+        rule = PolicyRule(**parse_json_field(data["rule_json"]))
+        decision, rationale = evaluate_policy(rule, payload.principal, payload.action, resource)
+        results.append(
+            PlaygroundDecision(
+                policy_id=data["id"],
+                decision=decision,
+                rationale=rationale,
+            )
+        )
+    return results
 
 
 @app.get("/evaluations", response_model=list[Evaluation])

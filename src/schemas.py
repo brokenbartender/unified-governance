@@ -246,6 +246,18 @@ class TrustCheck(BaseModel):
     checked_records: int
 
 
+class PlaygroundRequest(BaseModel):
+    principal: str
+    action: str
+    resource_id: str
+
+
+class PlaygroundDecision(BaseModel):
+    policy_id: str
+    decision: str
+    rationale: str
+
+
 class OpaPolicyExport(BaseModel):
     policy_id: str
     org_id: str

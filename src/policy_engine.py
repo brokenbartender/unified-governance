@@ -19,12 +19,15 @@ def _attributes_match(required: Dict[str, Any], actual: Dict[str, Any]) -> bool:
 
 
 def evaluate_policy(rule: PolicyRule, principal: str, action: str, resource: Resource) -> tuple[str, str]:
+    combined_attributes = dict(resource.attributes)
+    if resource.ai_metadata:
+        combined_attributes.update(resource.ai_metadata)
     if not _matches(principal, rule.allowed_principals):
         return "deny", "Principal not allowed"
     if not _matches(action, rule.allowed_actions):
         return "deny", "Action not allowed"
     if not _matches(resource.type, rule.resource_types):
         return "deny", "Resource type not allowed"
-    if not _attributes_match(rule.required_attributes, resource.attributes):
+    if not _attributes_match(rule.required_attributes, combined_attributes):
         return "deny", "Resource attributes do not satisfy policy"
     return "allow", "Policy conditions satisfied"
