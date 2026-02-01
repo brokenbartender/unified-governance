@@ -24,6 +24,8 @@ from .schemas import (
     EvidenceExport,
     Membership,
     MembershipCreate,
+    OidcAuthRequest,
+    OidcAuthResponse,
     Org,
     OrgCreate,
     OpaPolicyExport,
@@ -33,6 +35,8 @@ from .schemas import (
     Resource,
     ResourceCreate,
     RetentionStatus,
+    SamlAuthRequest,
+    SamlAuthResponse,
     ScimListResponse,
     ScimUser,
     ScimUserCreate,
@@ -265,7 +269,7 @@ def list_api_keys(org_id: str, key_row: dict = Depends(_require_org_and_scopes([
 def create_sso_config(
     org_id: str,
     payload: SsoConfigCreate,
-    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+    key_row: dict = Depends(_require_org_and_scopes(["sso:write"])),
 ) -> SsoConfig:
     if key_row["org_id"] != org_id:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -288,7 +292,7 @@ def create_sso_config(
 @app.get("/orgs/{org_id}/sso", response_model=list[SsoConfig])
 def list_sso_configs(
     org_id: str,
-    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+    key_row: dict = Depends(_require_org_and_scopes(["sso:read"])),
 ) -> list[SsoConfig]:
     if key_row["org_id"] != org_id:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -307,6 +311,53 @@ def list_sso_configs(
         )
         for row in rows
     ]
+
+
+@app.post("/sso/saml/initiate", response_model=SamlAuthResponse)
+def saml_initiate(
+    payload: SamlAuthRequest,
+    key_row: dict = Depends(_require_org_and_scopes(["sso:read"])),
+) -> SamlAuthResponse:
+    _ = key_row
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM sso_configs WHERE org_id = ? AND provider = ?",
+            (payload.org_id, "saml"),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="SAML config not found")
+    metadata = parse_json_field(row["metadata_json"])
+    return SamlAuthResponse(
+        org_id=payload.org_id,
+        provider="saml",
+        sso_url=metadata.get("sso_url", "https://idp.example.com/sso"),
+        relay_state=payload.relay_state,
+    )
+
+
+@app.post("/sso/oidc/initiate", response_model=OidcAuthResponse)
+def oidc_initiate(
+    payload: OidcAuthRequest,
+    key_row: dict = Depends(_require_org_and_scopes(["sso:read"])),
+) -> OidcAuthResponse:
+    _ = key_row
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM sso_configs WHERE org_id = ? AND provider = ?",
+            (payload.org_id, "oidc"),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="OIDC config not found")
+    metadata = parse_json_field(row["metadata_json"])
+    authorize_url = metadata.get("authorize_url", "https://idp.example.com/authorize")
+    return OidcAuthResponse(
+        org_id=payload.org_id,
+        provider="oidc",
+        authorization_url=(
+            f"{authorize_url}?client_id={metadata.get('client_id','client')}&redirect_uri={payload.redirect_uri}"
+            f"&response_type=code&scope=openid%20email%20profile&state={payload.state}"
+        ),
+    )
 
 
 @app.post("/scim/Users", response_model=ScimUser)

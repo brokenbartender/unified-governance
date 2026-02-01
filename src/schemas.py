@@ -53,6 +53,8 @@ class ApiKeyCreate(BaseModel):
             "connectors:read",
             "scim:read",
             "scim:write",
+            "sso:read",
+            "sso:write",
         ]
     )
 
@@ -82,6 +84,30 @@ class SsoConfig(BaseModel):
     provider: str
     metadata: Dict[str, Any]
     created_at: str
+
+
+class SamlAuthRequest(BaseModel):
+    org_id: str
+    relay_state: Optional[str] = None
+
+
+class SamlAuthResponse(BaseModel):
+    org_id: str
+    provider: str
+    sso_url: str
+    relay_state: Optional[str] = None
+
+
+class OidcAuthRequest(BaseModel):
+    org_id: str
+    redirect_uri: str
+    state: str
+
+
+class OidcAuthResponse(BaseModel):
+    org_id: str
+    provider: str
+    authorization_url: str
 
 
 class PolicyRule(BaseModel):

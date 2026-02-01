@@ -198,3 +198,38 @@ def test_scim_user_flow():
 
     delete_resp = client.delete(f"/scim/Users/{user_id}", headers=headers)
     assert delete_resp.status_code == 200
+
+
+def test_sso_initiate_flows():
+    org_id, api_key, _ = _create_org_and_key(scopes=["sso:read", "sso:write"])
+    headers = {"X-API-Key": api_key}
+
+    saml_resp = client.post(
+        f"/orgs/{org_id}/sso",
+        headers=headers,
+        json={"provider": "saml", "metadata": {"sso_url": "https://idp.example.com/sso"}},
+    )
+    assert saml_resp.status_code == 200
+
+    oidc_resp = client.post(
+        f"/orgs/{org_id}/sso",
+        headers=headers,
+        json={"provider": "oidc", "metadata": {"authorize_url": "https://idp.example.com/authorize", "client_id": "client"}},
+    )
+    assert oidc_resp.status_code == 200
+
+    saml_init = client.post(
+        "/sso/saml/initiate",
+        headers=headers,
+        json={"org_id": org_id, "relay_state": "xyz"},
+    )
+    assert saml_init.status_code == 200
+    assert saml_init.json()["sso_url"].startswith("https://")
+
+    oidc_init = client.post(
+        "/sso/oidc/initiate",
+        headers=headers,
+        json={"org_id": org_id, "redirect_uri": "https://app.example.com/callback", "state": "abc"},
+    )
+    assert oidc_init.status_code == 200
+    assert "authorize" in oidc_init.json()["authorization_url"]
