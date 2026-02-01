@@ -9,6 +9,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi.responses import HTMLResponse
 
 from .connectors.base import get_connector, list_connectors
 from .connectors import google_drive  # noqa: F401
@@ -102,9 +103,74 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/")
-def root() -> dict:
-    return {"status": "ok", "docs": "/docs"}
+@app.get("/", response_class=HTMLResponse)
+def root() -> str:
+    return """
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unified Governance Layer</title>
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #f6f7fb 0%, #eef1f6 100%);
+        color: #0f172a;
+      }
+      .wrap {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 64px 24px 80px;
+      }
+      .card {
+        background: #ffffff;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        padding: 32px;
+      }
+      h1 { font-size: 32px; margin: 0 0 12px; }
+      p { font-size: 16px; line-height: 1.6; }
+      .links {
+        display: grid;
+        gap: 12px;
+        margin-top: 20px;
+      }
+      a {
+        display: inline-block;
+        padding: 10px 14px;
+        border-radius: 10px;
+        text-decoration: none;
+        color: #0f172a;
+        background: #e2e8f0;
+      }
+      a.primary { background: #0f172a; color: #ffffff; }
+      .meta {
+        margin-top: 18px;
+        font-size: 13px;
+        color: #475569;
+      }
+      code { background: #f1f5f9; padding: 2px 6px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Unified Governance Layer</h1>
+        <p>Policy-as-code and evidence engine for third-party and AI data access governance.</p>
+        <div class="links">
+          <a class="primary" href="/docs">Open API Docs</a>
+          <a href="/openapi.json">OpenAPI JSON</a>
+          <a href="/health">Health Check</a>
+        </div>
+        <p class="meta">API base: <code>/</code> | Auth: <code>X-API-Key</code> header</p>
+      </div>
+    </div>
+  </body>
+</html>
+"""
 
 
 @app.post("/orgs", response_model=Org)
