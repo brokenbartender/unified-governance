@@ -239,6 +239,10 @@ class UsageSummary(BaseModel):
     total_evaluations: int
     total_evidence_stored_mb: float
     active_api_keys: int
+    total_policies: int
+    total_resources: int
+    total_webhooks: int
+    total_users: int
 
 
 class TrustCheck(BaseModel):
@@ -295,6 +299,20 @@ class DecisionLogExport(BaseModel):
     org_id: str
     exported_at: str
     total: int
+
+
+class OrgExport(BaseModel):
+    org: Org
+    users: List[User]
+    memberships: List[Membership]
+    teams: List[Team]
+    roles: List[Role]
+    team_memberships: List[TeamMembership]
+    policies: List[Policy]
+    resources: List[Resource]
+    api_keys: List[ApiKey]
+    webhooks: List[Webhook]
+    created_at: str
 
 
 class OpaPolicyExport(BaseModel):

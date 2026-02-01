@@ -8,7 +8,7 @@ import json
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 import urllib.request
 import time
@@ -41,6 +41,7 @@ from .schemas import (
     PolicyRule,
     PlaygroundDecision,
     PlaygroundRequest,
+    OrgExport,
     Resource,
     ResourceCreate,
     RetentionStatus,
@@ -75,6 +76,24 @@ app = FastAPI(title=settings.app_name)
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-Id", str(uuid.uuid4()))
+    response = await call_next(request)
+    response.headers.setdefault("X-Request-Id", request_id)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("text/html"):
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';",
+        )
+    return response
 
 
 def _hash_key(raw_key: str) -> str:
@@ -162,6 +181,63 @@ def health() -> dict:
 @app.get("/v1/health")
 def v1_health() -> dict:
     return health()
+
+
+@app.get("/status/live")
+def live_status() -> dict:
+    return {"status": "ok", "time": now_iso()}
+
+
+@app.get("/status/ready")
+def ready_status() -> dict:
+    try:
+        with get_conn() as conn:
+            conn.execute("SELECT 1")
+        return {"status": "ok", "db": "ok", "time": now_iso()}
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=503, detail=f"db unavailable: {exc}") from exc
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    with get_conn() as conn:
+        orgs = conn.execute("SELECT COUNT(*) as total FROM orgs").fetchone()
+        users = conn.execute("SELECT COUNT(*) as total FROM users").fetchone()
+        policies = conn.execute("SELECT COUNT(*) as total FROM policies").fetchone()
+        resources = conn.execute("SELECT COUNT(*) as total FROM resources").fetchone()
+        evaluations = conn.execute("SELECT COUNT(*) as total FROM evaluations").fetchone()
+        exports = conn.execute("SELECT COUNT(*) as total FROM evidence_exports").fetchone()
+        webhooks = conn.execute("SELECT COUNT(*) as total FROM webhooks").fetchone()
+
+    def _count(row) -> int:
+        if isinstance(row, dict):
+            return int(row.get("total", 0))
+        return int(row[0]) if row else 0
+
+    lines = [
+        "# HELP ug_orgs_total Total orgs",
+        "# TYPE ug_orgs_total gauge",
+        f"ug_orgs_total {_count(orgs)}",
+        "# HELP ug_users_total Total users",
+        "# TYPE ug_users_total gauge",
+        f"ug_users_total {_count(users)}",
+        "# HELP ug_policies_total Total policies",
+        "# TYPE ug_policies_total gauge",
+        f"ug_policies_total {_count(policies)}",
+        "# HELP ug_resources_total Total resources",
+        "# TYPE ug_resources_total gauge",
+        f"ug_resources_total {_count(resources)}",
+        "# HELP ug_evaluations_total Total evaluations",
+        "# TYPE ug_evaluations_total counter",
+        f"ug_evaluations_total {_count(evaluations)}",
+        "# HELP ug_evidence_exports_total Total evidence exports",
+        "# TYPE ug_evidence_exports_total counter",
+        f"ug_evidence_exports_total {_count(exports)}",
+        "# HELP ug_webhooks_total Total webhooks",
+        "# TYPE ug_webhooks_total gauge",
+        f"ug_webhooks_total {_count(webhooks)}",
+    ]
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1623,11 +1699,48 @@ def enforce_retention(key_row: dict = Depends(_require_org_and_scopes(["evidence
     )
 
 
+@app.post("/maintenance/cleanup", response_model=dict)
+def maintenance_cleanup(
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> dict:
+    org_id = key_row["org_id"]
+    now = datetime.utcnow()
+    decision_cutoff = (now - timedelta(days=settings.decision_log_retention_days)).isoformat() + "Z"
+    webhook_cutoff = (now - timedelta(days=settings.webhook_delivery_retention_days)).isoformat() + "Z"
+    export_cutoff = (now - timedelta(days=settings.retention_days)).isoformat() + "Z"
+    with get_conn() as conn:
+        decision_deleted = conn.execute(
+            "DELETE FROM decision_logs WHERE org_id = ? AND created_at < ?",
+            (org_id, decision_cutoff),
+        ).rowcount
+        webhook_deleted = conn.execute(
+            "DELETE FROM webhook_deliveries WHERE webhook_id IN (SELECT id FROM webhooks WHERE org_id = ?) AND created_at < ?",
+            (org_id, webhook_cutoff),
+        ).rowcount
+        export_deleted = conn.execute(
+            "DELETE FROM evidence_exports WHERE org_id = ? AND created_at < ?",
+            (org_id, export_cutoff),
+        ).rowcount
+    return {
+        "org_id": org_id,
+        "decision_logs_deleted": decision_deleted,
+        "webhook_deliveries_deleted": webhook_deleted,
+        "evidence_exports_deleted": export_deleted,
+        "cutoffs": {
+            "decision_logs_before": decision_cutoff,
+            "webhook_deliveries_before": webhook_cutoff,
+            "evidence_exports_before": export_cutoff,
+        },
+    }
+
+
 @app.get("/evidence/search", response_model=EvidenceSearchResult)
 def evidence_search(
     principal: str | None = None,
     policy_id: str | None = None,
     decision: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
     limit: int = 50,
     offset: int = 0,
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
@@ -1645,6 +1758,12 @@ def evidence_search(
     if decision:
         conditions.append("decision = ?")
         params.append(decision)
+    if start:
+        conditions.append("created_at >= ?")
+        params.append(start)
+    if end:
+        conditions.append("created_at <= ?")
+        params.append(end)
     where = " AND ".join(conditions)
     with get_conn() as conn:
         rows = conn.execute(
@@ -1667,11 +1786,13 @@ def v1_evidence_search(
     principal: str | None = None,
     policy_id: str | None = None,
     decision: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
     limit: int = 50,
     offset: int = 0,
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
 ) -> EvidenceSearchResult:
-    return evidence_search(principal, policy_id, decision, limit, offset, key_row)
+    return evidence_search(principal, policy_id, decision, start, end, limit, offset, key_row)
 
 
 @app.get("/evidence/verify", response_model=EvidenceVerifyResult)
@@ -1719,13 +1840,39 @@ def verify_evidence_chain(
 
 
 @app.get("/evidence/export", response_model=EvidenceExport)
-def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_and_scopes(["evidence:read"]))):
+def export_evidence(
+    format: str = "json",
+    principal: str | None = None,
+    policy_id: str | None = None,
+    decision: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+):
     org_id = key_row["org_id"]
     _rate_limit(org_id)
+    conditions = ["org_id = ?"]
+    params: list = [org_id]
+    if principal:
+        conditions.append("principal = ?")
+        params.append(principal)
+    if policy_id:
+        conditions.append("policy_id = ?")
+        params.append(policy_id)
+    if decision:
+        conditions.append("decision = ?")
+        params.append(decision)
+    if start:
+        conditions.append("created_at >= ?")
+        params.append(start)
+    if end:
+        conditions.append("created_at <= ?")
+        params.append(end)
+    where = " AND ".join(conditions)
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM evaluations WHERE org_id = ? ORDER BY created_at DESC",
-            (org_id,),
+            f"SELECT * FROM evaluations WHERE {where} ORDER BY created_at DESC",
+            tuple(params),
         ).fetchall()
     evaluations = [Evaluation(**row_to_dict(row)) for row in rows]
     exported_at = now_iso()
@@ -1788,8 +1935,16 @@ def export_evidence(format: str = "json", key_row: dict = Depends(_require_org_a
 
 
 @app.get("/v1/evidence/export", response_model=EvidenceExport)
-def v1_export_evidence(format: str = "json", key_row: dict = Depends(_require_org_and_scopes(["evidence:read"]))):
-    return export_evidence(format, key_row)
+def v1_export_evidence(
+    format: str = "json",
+    principal: str | None = None,
+    policy_id: str | None = None,
+    decision: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+):
+    return export_evidence(format, principal, policy_id, decision, start, end, key_row)
 
 
 @app.get("/connectors")
@@ -1840,6 +1995,35 @@ def list_webhooks(key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])
         )
         for row in rows
     ]
+
+
+@app.post("/webhooks/{webhook_id}/rotate-secret", response_model=Webhook)
+def rotate_webhook_secret(
+    webhook_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:write"])),
+) -> Webhook:
+    org_id = key_row["org_id"]
+    new_secret = secrets.token_urlsafe(24)
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM webhooks WHERE id = ? AND org_id = ?",
+            (webhook_id, org_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+        conn.execute(
+            "UPDATE webhooks SET secret = ? WHERE id = ?",
+            (new_secret, webhook_id),
+        )
+    data = row_to_dict(row)
+    return Webhook(
+        id=data["id"],
+        org_id=data["org_id"],
+        url=data["url"],
+        secret=new_secret,
+        enabled=bool(data["enabled"]),
+        created_at=data["created_at"],
+    )
 
 
 @app.post("/webhooks/{webhook_id}/test", response_model=WebhookDelivery)
@@ -1978,6 +2162,27 @@ def export_decision_logs(
     return DecisionLogExport(org_id=org_id, exported_at=exported_at, total=len(rows))
 
 
+@app.get("/audit/export")
+def export_audit_log(
+    format: str = "csv",
+    key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
+):
+    org_id = key_row["org_id"]
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM evaluations WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,),
+        ).fetchall()
+    serialized = io.StringIO()
+    writer = csv.DictWriter(serialized, fieldnames=list(Evaluation.model_fields.keys()))
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row_to_dict(row))
+    csv_data = serialized.getvalue()
+    checksum = hashlib.sha256(csv_data.encode("utf-8")).hexdigest()
+    return Response(content=csv_data, media_type="text/csv", headers={"X-Audit-Checksum": checksum})
+
+
 @app.get("/decision-logs/stream")
 def stream_decision_logs(
     key_row: dict = Depends(_require_org_and_scopes(["evidence:read"])),
@@ -2037,11 +2242,31 @@ def org_usage(
             "SELECT COUNT(*) as total FROM api_keys WHERE org_id = ? AND revoked_at IS NULL",
             (org_id,),
         ).fetchone()
+        policy_rows = conn.execute(
+            "SELECT COUNT(*) as total FROM policies WHERE org_id = ?",
+            (org_id,),
+        ).fetchone()
+        resource_rows = conn.execute(
+            "SELECT COUNT(*) as total FROM resources WHERE org_id = ?",
+            (org_id,),
+        ).fetchone()
+        webhook_rows = conn.execute(
+            "SELECT COUNT(*) as total FROM webhooks WHERE org_id = ?",
+            (org_id,),
+        ).fetchone()
+        user_rows = conn.execute(
+            "SELECT COUNT(*) as total FROM org_memberships WHERE org_id = ?",
+            (org_id,),
+        ).fetchone()
     total_evaluations = eval_count_row["total"] if isinstance(eval_count_row, dict) else eval_count_row[0]
     total_bytes = export_rows["total_bytes"] if isinstance(export_rows, dict) else export_rows[0]
     total_bytes = total_bytes or 0
     total_mb = round(total_bytes / (1024 * 1024), 2)
     active_api_keys = api_key_rows["total"] if isinstance(api_key_rows, dict) else api_key_rows[0]
+    total_policies = policy_rows["total"] if isinstance(policy_rows, dict) else policy_rows[0]
+    total_resources = resource_rows["total"] if isinstance(resource_rows, dict) else resource_rows[0]
+    total_webhooks = webhook_rows["total"] if isinstance(webhook_rows, dict) else webhook_rows[0]
+    total_users = user_rows["total"] if isinstance(user_rows, dict) else user_rows[0]
 
     return UsageSummary(
         org_id=org_id,
@@ -2049,6 +2274,135 @@ def org_usage(
         total_evaluations=total_evaluations,
         total_evidence_stored_mb=total_mb,
         active_api_keys=active_api_keys,
+        total_policies=total_policies,
+        total_resources=total_resources,
+        total_webhooks=total_webhooks,
+        total_users=total_users,
+    )
+
+
+@app.get("/orgs/{org_id}/export", response_model=OrgExport)
+def export_org(
+    org_id: str,
+    key_row: dict = Depends(_require_org_and_scopes(["orgs:read"])),
+) -> OrgExport:
+    if key_row["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with get_conn() as conn:
+        org_row = conn.execute("SELECT * FROM orgs WHERE id = ?", (org_id,)).fetchone()
+        if not org_row:
+            raise HTTPException(status_code=404, detail="Org not found")
+        user_rows = conn.execute(
+            "SELECT u.* FROM users u JOIN org_memberships m ON u.id = m.user_id WHERE m.org_id = ?",
+            (org_id,),
+        ).fetchall()
+        membership_rows = conn.execute(
+            "SELECT * FROM org_memberships WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        team_rows = conn.execute(
+            "SELECT * FROM teams WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        role_rows = conn.execute(
+            "SELECT * FROM roles WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        team_membership_rows = conn.execute(
+            "SELECT * FROM team_memberships WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        policy_rows = conn.execute(
+            "SELECT * FROM policies WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        resource_rows = conn.execute(
+            "SELECT * FROM resources WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        api_key_rows = conn.execute(
+            "SELECT * FROM api_keys WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+        webhook_rows = conn.execute(
+            "SELECT * FROM webhooks WHERE org_id = ?",
+            (org_id,),
+        ).fetchall()
+    org = Org(**row_to_dict(org_row))
+    users = [User(**row_to_dict(row)) for row in user_rows]
+    memberships = [Membership(**row_to_dict(row)) for row in membership_rows]
+    teams = [Team(**row_to_dict(row)) for row in team_rows]
+    roles = [
+        Role(
+            id=row["id"],
+            org_id=row["org_id"],
+            name=row["name"],
+            permissions=parse_json_field(row["permissions_json"]),
+            created_at=row["created_at"],
+        )
+        for row in role_rows
+    ]
+    team_memberships = [TeamMembership(**row_to_dict(row)) for row in team_membership_rows]
+    policies = [
+        Policy(
+            id=row["id"],
+            org_id=row["org_id"],
+            name=row["name"],
+            description=row["description"],
+            rule=PolicyRule(**parse_json_field(row["rule_json"])),
+            created_at=row["created_at"],
+        )
+        for row in policy_rows
+    ]
+    resources = [
+        Resource(
+            id=row["id"],
+            org_id=row["org_id"],
+            name=row["name"],
+            type=row["type"],
+            attributes=parse_json_field(row["attributes_json"]),
+            source_system=row.get("source_system") or "manual",
+            external_id=row.get("external_id"),
+            ai_metadata=parse_json_field(row.get("ai_metadata_json", "")) or None,
+            created_at=row["created_at"],
+        )
+        for row in resource_rows
+    ]
+    api_keys = [
+        ApiKey(
+            id=row["id"],
+            org_id=row["org_id"],
+            name=row["name"],
+            scopes=parse_json_field(row["scopes_json"]),
+            created_at=row["created_at"],
+            last_used_at=row["last_used_at"],
+            revoked_at=row["revoked_at"],
+        )
+        for row in api_key_rows
+    ]
+    webhooks = [
+        Webhook(
+            id=row["id"],
+            org_id=row["org_id"],
+            url=row["url"],
+            secret=row["secret"],
+            enabled=bool(row["enabled"]),
+            created_at=row["created_at"],
+        )
+        for row in webhook_rows
+    ]
+    return OrgExport(
+        org=org,
+        users=users,
+        memberships=memberships,
+        teams=teams,
+        roles=roles,
+        team_memberships=team_memberships,
+        policies=policies,
+        resources=resources,
+        api_keys=api_keys,
+        webhooks=webhooks,
+        created_at=now_iso(),
     )
 
 

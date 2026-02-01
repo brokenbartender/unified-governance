@@ -13,6 +13,7 @@ uvicorn src.app:app --reload
 
 Open http://127.0.0.1:8000/docs for the API UI.
 Open http://127.0.0.1:8000/admin for the admin dashboard.
+Open http://127.0.0.1:8000 for the landing page.
 
 ## Quick Start (Docker + Postgres)
 
@@ -39,7 +40,8 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `POST /orgs/{org_id}/keys/{key_id}/rotate`
 - `POST /orgs/{org_id}/keys/{key_id}/revoke`
 - `POST /orgs/{org_id}/sso`
-- `POST /orgs/{org_id}/usage`
+- `GET /orgs/{org_id}/usage`
+- `GET /orgs/{org_id}/export`
 - `POST /policies`
 - `POST /policies/generate`
 - `GET /policies/{policy_id}/opa`
@@ -48,13 +50,18 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 - `GET /evidence/verify`
 - `POST /evidence/retain`
 - `GET /evidence/export` (JSON) or `?format=csv` (CSV + signature header)
-- `GET /evidence/search`
+- `GET /evidence/search` (supports `start`, `end`, `decision`, `policy_id`, `principal`)
 - `GET /connectors`
 - `POST /scim/Users`
 - `GET /scim/Users`
 - `POST /webhooks`
 - `POST /webhooks/{id}/test`
+- `POST /webhooks/{id}/rotate-secret`
 - `GET /decision-logs/export`
+- `POST /maintenance/cleanup`
+- `GET /status/live`
+- `GET /status/ready`
+- `GET /metrics`
 
 ## SDKs
 - Python: `sdk/python`
@@ -62,6 +69,13 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 
 ## Integration Guides
 - `docs/INTEGRATION_GUIDES.md`
+
+## Status & Metrics
+- `docs/STATUS_AND_METRICS.md`
+
+## API Collections
+- OpenAPI snapshot: `docs/openapi.json`
+- Postman collection: `docs/postman_collection.json`
 
 ## IaC
 - Helm chart: `iac/helm/unified-governance`
@@ -72,6 +86,7 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 
 ## Operational Intelligence
 - `docs/OPERATIONAL_INTELLIGENCE.md`
+- `docs/MAINTENANCE.md`
 
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`

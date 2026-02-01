@@ -128,8 +128,9 @@ def _add_column_if_missing(conn: ConnWrapper, table: str, column: str, col_type:
 
 def init_db() -> None:
     with get_conn() as conn:
+        payload_type = "JSONB" if DB_KIND == "postgres" else "TEXT"
         conn.executescript(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS orgs (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -258,7 +259,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS decision_logs (
                 id TEXT PRIMARY KEY,
                 org_id TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
+                payload_json {payload_type} NOT NULL,
                 created_at TEXT NOT NULL
             );
             """

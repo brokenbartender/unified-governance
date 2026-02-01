@@ -15,11 +15,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--api-key", required=True)
+    parser.add_argument("--export-org", action="store_true", help="Export org bundle after bootstrapping")
     args = parser.parse_args()
 
     org = request(args.base_url, args.api_key, "/orgs", payload={"name": "Demo Org"})
     key = request(args.base_url, args.api_key, f"/orgs/{org['id']}/keys", payload={"name": "demo-key"})
-    print(json.dumps({"org": org, "key": key}, indent=2))
+    output = {"org": org, "key": key}
+    if args.export_org:
+        export = request(args.base_url, args.api_key, f"/orgs/{org['id']}/export", method="GET")
+        output["export"] = export
+    print(json.dumps(output, indent=2))
 
 
 if __name__ == "__main__":

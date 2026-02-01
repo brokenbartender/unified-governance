@@ -335,6 +335,10 @@ def test_usage_endpoint():
     usage = client.get(f"/orgs/{org_id}/usage", headers=headers)
     assert usage.status_code == 200
     assert usage.json()["total_evaluations"] >= 1
+    assert usage.json()["total_policies"] >= 1
+    assert usage.json()["total_resources"] >= 1
+    assert "total_webhooks" in usage.json()
+    assert "total_users" in usage.json()
 
 
 def test_evidence_search():
@@ -364,3 +368,13 @@ def test_webhook_create_and_test():
     assert test.status_code == 200
     retry = client.post(f"/webhooks/{wh_id}/retry", headers=headers)
     assert retry.status_code == 200
+
+
+def test_status_and_metrics():
+    live = client.get("/status/live")
+    assert live.status_code == 200
+    ready = client.get("/status/ready")
+    assert ready.status_code == 200
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    assert "ug_orgs_total" in metrics.text

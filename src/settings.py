@@ -14,6 +14,8 @@ class Settings:
     db_url: str | None = os.getenv("DB_URL")
     evidence_hmac_secret: str = os.getenv("EVIDENCE_HMAC_SECRET", "dev-secret-change")
     retention_days: int = int(os.getenv("RETENTION_DAYS", "90"))
+    decision_log_retention_days: int = int(os.getenv("DECISION_LOG_RETENTION_DAYS", "180"))
+    webhook_delivery_retention_days: int = int(os.getenv("WEBHOOK_DELIVERY_RETENTION_DAYS", "30"))
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     enable_webhook_delivery: bool = os.getenv("ENABLE_WEBHOOK_DELIVERY", "false").lower() == "true"
