@@ -17,6 +17,12 @@ This document is a machine-readable summary of the current system capabilities.
 - **Webhooks:** Delivery logs, retries, secret rotation.
 - **Admin dashboard:** Policy playground, key management, team view, evidence search, trust badge.
 - **Identity:** SSO/SCIM stubs, user provisioning flows.
+
+## Clarifications
+- **SSO/SCIM stubs:** Provide API surface + UI flows for initiation/provisioning. They do not include full IdP handshakes, token validation, or vendor-specific provisioning callbacks.
+- **Evidence chain integrity:** Uses SHA-256 record hashing and HMAC-SHA256 signatures for exports (CSV/JSON).
+- **Connector scope:** Google Drive and Snowflake are architectural mocks; Okta and CloudTrail are stub samples. The SDK is production-ready, while connectors are meant as integration templates.
+- **Enforcement boundary:** This system is a decision + evidence layer. Enforcement happens in the caller (API gateway, proxy, or app) using evaluation results, or via outbound webhooks.
 - **Observability:** Health, readiness, metrics, decision log export + SSE.
 
 ## API Surface (High Level)

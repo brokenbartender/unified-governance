@@ -14,7 +14,9 @@
 
 ## Evidence Integrity
 - Each evaluation includes `record_hash` chained to the previous record.
+- Hashing uses SHA-256 over the serialized record plus the previous hash.
 - Verification endpoint recomputes chain to ensure tamper-evidence.
+- Export signatures use HMAC-SHA256 over JSON or CSV payloads.
 
 ## Admin Surface
 - `/admin` exposes key management, policy playground, evidence search, trust badge.
@@ -22,6 +24,10 @@
 ## Observability
 - `/metrics` for Prometheus scraping.
 - `/status/live` and `/status/ready` for liveness/readiness probes.
+
+## Enforcement Boundary
+- The system returns policy decisions and evidence.
+- Enforcement is implemented by the caller (gateway/proxy/app) using the decision results or via webhooks.
 
 ## Deployment
 - Docker + Postgres (docker compose)
