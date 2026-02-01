@@ -1,0 +1,13 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: unified-governance
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: unified-governance
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: 8000
+      protocol: TCP
+      name: http

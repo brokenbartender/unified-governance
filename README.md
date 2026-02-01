@@ -57,6 +57,10 @@ Open http://127.0.0.1:8000/admin for the admin dashboard.
 ## Integration Guides
 - `docs/INTEGRATION_GUIDES.md`
 
+## IaC
+- Helm chart: `iac/helm/unified-governance`
+- Terraform: `iac/terraform`
+
 ## Compliance Docs
 - `docs/CONTROL_MATRIX.md`
 - `docs/COMPLIANCE_ALIGNMENT.md`

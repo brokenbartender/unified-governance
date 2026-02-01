@@ -1,0 +1,31 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unified-governance
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: unified-governance
+  template:
+    metadata:
+      labels:
+        app: unified-governance
+    spec:
+      containers:
+        - name: unified-governance
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: EVIDENCE_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: unified-governance-secrets
+                  key: evidence_hmac_secret
+            - name: RETENTION_DAYS
+              value: "{{ .Values.env.RETENTION_DAYS }}"
+            - name: DB_URL
+              value: "{{ .Values.env.DB_URL }}"
+          resources: {{- toYaml .Values.resources | nindent 12 }}

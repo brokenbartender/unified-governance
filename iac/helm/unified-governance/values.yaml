@@ -1,0 +1,18 @@
+﻿replicaCount: 1
+
+image:
+  repository: ghcr.io/brokenbartender/unified-governance
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+env:
+  EVIDENCE_HMAC_SECRET: change-me
+  RETENTION_DAYS: "90"
+  DB_URL: ""
+
+resources: {}
+
